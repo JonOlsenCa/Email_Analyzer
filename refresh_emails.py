@@ -5,15 +5,11 @@ Refresh Emails API
 This script provides an API endpoint to fetch new emails that have arrived since the last check.
 """
 
-import os
-import sys
 import json
-import logging
 import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 from outlook_connector import OutlookConnector
-from email_parser import EmailParser
 from utils import setup_logging
 
 # Setup logging
@@ -55,7 +51,7 @@ class RefreshEmailsHandler(BaseHTTPRequestHandler):
             email_account = query_params.get("email_account", [DEFAULT_EMAIL_ACCOUNT])[0]
             folder_path = query_params.get("folder_path", [DEFAULT_FOLDER_PATH])[0]
             max_emails = int(query_params.get("max_emails", [DEFAULT_MAX_EMAILS])[0])
-            
+
             # Get the latest email date from query parameters
             latest_email_date_str = query_params.get("latest_email_date", [""])[0]
             latest_email_date = None
@@ -106,27 +102,23 @@ class RefreshEmailsHandler(BaseHTTPRequestHandler):
                 logger.error(f"Could not find folder: {folder_path}")
                 return []
 
-            # Get emails from the folder
-            emails = connector.get_emails_from_folder(folder, max_emails)
-            
-            # Filter emails to only include those newer than latest_email_date
+            # Log the latest email date we're using as a filter
+            if latest_email_date:
+                logger.info(f"Filtering emails newer than: {latest_email_date}")
+            else:
+                logger.info("No date filter applied, fetching all emails")
+
+            # Get emails from the folder with our date filter
+            # This will use Outlook's built-in filtering which is much more efficient
+            emails = connector.get_emails_from_folder(folder, max_emails, min_date=latest_email_date)
+            logger.info(f"Found {len(emails)} new emails after applying date filter")
+
+            # Process the emails
             new_emails = []
-            for email in emails:
-                # Skip emails that don't have a received time
-                if not hasattr(email, "ReceivedTime"):
-                    continue
-                
-                # Convert Outlook datetime to Python datetime
-                email_date = email.ReceivedTime
-                
-                # If we have a latest_email_date, only include newer emails
-                if latest_email_date and email_date <= latest_email_date:
-                    continue
-                
-                # Parse the email
-                parser = EmailParser()
-                email_data = parser.parse_email(email)
-                
+            for email_data in emails:
+                # The emails are already parsed by the OutlookConnector
+                # No need to parse them again
+
                 if email_data:
                     # Convert to a serializable format
                     email_dict = {
@@ -147,7 +139,7 @@ class RefreshEmailsHandler(BaseHTTPRequestHandler):
                         "user_id": email_data.user_id if hasattr(email_data, "user_id") else "",
                     }
                     new_emails.append(email_dict)
-            
+
             logger.info(f"Found {len(new_emails)} new emails")
             return new_emails
 

@@ -86,7 +86,7 @@ class OutlookConnector:
             logger.error(f"Error getting folder: {str(e)}")
             return None
 
-    def get_emails_from_folder(self, folder, limit=None, save_to_eml=False, output_dir=None):
+    def get_emails_from_folder(self, folder, limit=None, save_to_eml=False, output_dir=None, min_date=None):
         """
         Get emails from an Outlook folder.
 
@@ -95,6 +95,7 @@ class OutlookConnector:
             limit (int, optional): Maximum number of emails to retrieve
             save_to_eml (bool): Whether to save emails as EML files
             output_dir (str, optional): Directory to save EML files
+            min_date (datetime, optional): Only retrieve emails received after this date
 
         Returns:
             list: List of EmailData objects
@@ -109,6 +110,22 @@ class OutlookConnector:
             # Get emails from the folder
             items = folder.Items
             items.Sort("[ReceivedTime]", True)  # Sort by received time, newest first
+
+            # If we have a min_date, create a filter to only get emails after that date
+            if min_date:
+                # Format the date for Outlook filter
+                # Format: "2/16/2022 12:00 AM"
+                filter_date = min_date.strftime("%m/%d/%Y %I:%M %p")
+                # Create a filter string for emails received after min_date
+                filter_str = f"[ReceivedTime] > '{filter_date}'"
+                logger.info(f"Applying Outlook filter: {filter_str}")
+
+                # Apply the filter to the items collection
+                filtered_items = items.Restrict(filter_str)
+                logger.info(f"Filter applied, found {filtered_items.Count} emails after {filter_date}")
+
+                # Use the filtered items
+                items = filtered_items
 
             count = 0
             for item in items:
