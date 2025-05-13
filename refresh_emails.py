@@ -117,15 +117,18 @@ class RefreshEmailsHandler(BaseHTTPRequestHandler):
             new_emails = []
             for email_data in emails:
                 # The emails are already parsed by the OutlookConnector
-                # No need to parse them again
+                # But we need to make sure structured data is extracted
 
                 if email_data:
+                    # Force extraction of structured data to ensure we have client and user information
+                    connector._extract_structured_data(email_data)
+
                     # Convert to a serializable format
                     email_dict = {
                         "subject": email_data.subject,
                         "date": str(email_data.date),
                         "from_address": email_data.from_address,
-                        "body": email_data.body,
+                        "body": email_data.body_text if hasattr(email_data, "body_text") else "",
                         "subject_template": email_data.subject_template if hasattr(email_data, "subject_template") else "",
                         "description": email_data.description if hasattr(email_data, "description") else "",
                         "company_name": email_data.company_name if hasattr(email_data, "company_name") else "",
@@ -138,6 +141,10 @@ class RefreshEmailsHandler(BaseHTTPRequestHandler):
                         "user_name": email_data.user_name if hasattr(email_data, "user_name") else "",
                         "user_id": email_data.user_id if hasattr(email_data, "user_id") else "",
                     }
+
+                    # Log the extracted information for debugging
+                    logger.info(f"Extracted email data: Subject={email_data.subject}, Client={email_dict['client_name']}, User={email_dict['user_name']}")
+
                     new_emails.append(email_dict)
 
             logger.info(f"Found {len(new_emails)} new emails")

@@ -14,6 +14,7 @@ from datetime import datetime
 from outlook_connector import OutlookConnector
 from analyzer import Analyzer
 from utils import setup_logging
+from support_categories import categorize_description
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -305,6 +306,20 @@ def create_html_index(output_dir, emails, folder_path):
             color: #666666;
             cursor: not-allowed;
         }}
+
+        /* Styles for column reordering */
+        th.draggable {{
+            cursor: move;
+        }}
+
+        th.dragging {{
+            opacity: 0.5;
+            background-color: #aaf;
+        }}
+
+        th.drop-target {{
+            border: 2px dashed #00f;
+        }}
     </style>
     <script>
         // Global variables to track current sort state
@@ -320,13 +335,30 @@ def create_html_index(output_dir, emails, folder_path):
 
         function toggleColumn(colIndex, checked) {{
             const table = document.getElementById('emailTable');
-            const rows = table.getElementsByTagName('tr');
 
-            // Skip header row (index 0)
-            for (let i = 0; i < rows.length; i++) {{
-                const cells = rows[i].getElementsByTagName(i === 0 ? 'th' : 'td');
-                if (cells.length > colIndex) {{
-                    cells[colIndex].style.display = checked ? '' : 'none';
+            // Get the thead and tbody elements
+            const thead = table.querySelector('thead');
+            const tbody = table.querySelector('tbody');
+
+            if (thead) {{
+                // Handle header cells
+                const headerRows = thead.getElementsByTagName('tr');
+                for (let i = 0; i < headerRows.length; i++) {{
+                    const cells = headerRows[i].getElementsByTagName('th');
+                    if (cells.length > colIndex) {{
+                        cells[colIndex].style.display = checked ? '' : 'none';
+                    }}
+                }}
+            }}
+
+            if (tbody) {{
+                // Handle body cells
+                const bodyRows = tbody.getElementsByTagName('tr');
+                for (let i = 0; i < bodyRows.length; i++) {{
+                    const cells = bodyRows[i].getElementsByTagName('td');
+                    if (cells.length > colIndex) {{
+                        cells[colIndex].style.display = checked ? '' : 'none';
+                    }}
                 }}
             }}
         }}
@@ -382,7 +414,16 @@ def create_html_index(output_dir, emails, folder_path):
         function sortTable(columnIndex, dataType = 'string') {{
             const table = document.getElementById('emailTable');
             const headers = table.querySelectorAll('th');
-            const rows = Array.from(table.rows).slice(1); // Skip header row
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {{
+                console.error('No tbody element found in the table');
+                return;
+            }}
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
 
             // Determine sort direction
             let direction = 'asc';
@@ -404,8 +445,7 @@ def create_html_index(output_dir, emails, folder_path):
                 return compareValues(valueA, valueB, dataType, direction);
             }});
 
-            // Reorder the rows in the table
-            const tbody = table.tBodies[0] || table;
+            // Reorder the rows in the tbody
             rows.forEach(row => tbody.appendChild(row));
 
             // Update row numbers
@@ -429,7 +469,16 @@ def create_html_index(output_dir, emails, folder_path):
 
             // Get unique values for this column
             const table = document.getElementById('emailTable');
-            const rows = Array.from(table.rows).slice(1); // Skip header row
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {{
+                console.error('No tbody element found in the table');
+                return;
+            }}
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
             const values = new Set();
 
             rows.forEach(row => {{
@@ -438,7 +487,12 @@ def create_html_index(output_dir, emails, folder_path):
             }});
 
             // Create filter container
-            const header = table.rows[0].cells[columnIndex];
+            const thead = table.querySelector('thead');
+            if (!thead || !thead.rows || !thead.rows[0]) {{
+                console.error('No thead rows found in the table');
+                return;
+            }}
+            const header = thead.rows[0].cells[columnIndex];
             const container = document.createElement('div');
             container.className = 'filter-container';
             container.style.top = (header.offsetHeight) + 'px';
@@ -546,7 +600,16 @@ def create_html_index(output_dir, emails, folder_path):
         // Function to apply all active filters
         function applyFilters() {{
             const table = document.getElementById('emailTable');
-            const rows = Array.from(table.rows).slice(1); // Skip header row
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {{
+                console.error('No tbody element found in the table');
+                return;
+            }}
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
 
             // Show all rows first
             rows.forEach(row => {{
@@ -581,10 +644,15 @@ def create_html_index(output_dir, emails, folder_path):
         // Function to add filter buttons to headers
         function setupColumnFilters() {{
             const table = document.getElementById('emailTable');
-            const headers = table.querySelectorAll('th');
+            const thead = table.querySelector('thead');
+            if (!thead) {{
+                console.error('No thead element found in the table');
+                return;
+            }}
+            const headers = thead.querySelectorAll('th');
 
-            // Skip the first column (#)
-            for (let i = 1; i < headers.length; i++) {{
+            // Add filter buttons to ALL headers including the first column (#)
+            for (let i = 0; i < headers.length; i++) {{
                 const header = headers[i];
 
                 // Make header clickable for sorting
@@ -592,7 +660,7 @@ def create_html_index(output_dir, emails, folder_path):
                     // Determine data type for this column
                     let dataType = 'string';
                     if (i === 3) dataType = 'date'; // Date column
-                    if (i === 8) dataType = 'number'; // Invoice Number column
+                    if (i === 9) dataType = 'number'; // Invoice Number column (index shifted due to Support Category)
 
                     sortTable(i, dataType);
                 }});
@@ -604,6 +672,8 @@ def create_html_index(output_dir, emails, folder_path):
                 filterBtn.style.fontSize = '12px';
                 filterBtn.title = 'Filter';
                 filterBtn.addEventListener('click', function(event) {{
+                    // Stop propagation to prevent sorting when clicking filter
+                    event.stopPropagation();
                     showFilter(i, event);
                 }});
 
@@ -611,11 +681,164 @@ def create_html_index(output_dir, emails, folder_path):
             }}
         }}
 
+        // Function to setup column reordering
+        function setupColumnReordering() {{
+            const table = document.getElementById('emailTable');
+            const thead = table.querySelector('thead');
+            if (!thead) {{
+                console.error('No thead element found in the table');
+                return;
+            }}
+            const headers = thead.querySelectorAll('th');
+
+            // Make all headers draggable, including the first column (#)
+            for (let i = 0; i < headers.length; i++) {{
+                const header = headers[i];
+
+                // Make header draggable
+                header.classList.add('draggable');
+                header.setAttribute('draggable', 'true');
+
+                // Add drag events
+                header.addEventListener('dragstart', handleDragStart);
+                header.addEventListener('dragover', handleDragOver);
+                header.addEventListener('dragenter', handleDragEnter);
+                header.addEventListener('dragleave', handleDragLeave);
+                header.addEventListener('drop', handleDrop);
+                header.addEventListener('dragend', handleDragEnd);
+            }}
+        }}
+
+        // Variables to track dragged column
+        let draggedColumn = null;
+        let draggedColumnIndex = -1;
+
+        // Handle drag start
+        function handleDragStart(e) {{
+            draggedColumn = this;
+            draggedColumnIndex = Array.from(draggedColumn.parentNode.children).indexOf(draggedColumn);
+
+            // Set data transfer
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+
+            // Add dragging class
+            this.classList.add('dragging');
+        }}
+
+        // Handle drag over
+        function handleDragOver(e) {{
+            if (e.preventDefault) {{
+                e.preventDefault();
+            }}
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }}
+
+        // Handle drag enter
+        function handleDragEnter(e) {{
+            this.classList.add('drop-target');
+        }}
+
+        // Handle drag leave
+        function handleDragLeave(e) {{
+            this.classList.remove('drop-target');
+        }}
+
+        // Handle drop
+        function handleDrop(e) {{
+            if (e.stopPropagation) {{
+                e.stopPropagation();
+            }}
+
+            if (draggedColumn !== this) {{
+                // Get the target column index
+                const targetColumnIndex = Array.from(this.parentNode.children).indexOf(this);
+
+                // Move the column
+                moveColumn(draggedColumnIndex, targetColumnIndex);
+            }}
+
+            return false;
+        }}
+
+        // Handle drag end
+        function handleDragEnd(e) {{
+            // Remove all drag classes
+            const headers = document.querySelectorAll('th');
+            headers.forEach(header => {{
+                header.classList.remove('dragging');
+                header.classList.remove('drop-target');
+            }});
+
+            // Reset drag variables
+            draggedColumn = null;
+            draggedColumnIndex = -1;
+        }}
+
+        // Function to move a column
+        function moveColumn(fromIndex, toIndex) {{
+            const table = document.getElementById('emailTable');
+            const rows = table.querySelectorAll('tr');
+
+            // Move column in each row
+            rows.forEach(row => {{
+                const cells = row.querySelectorAll('th, td');
+
+                // Skip if row doesn't have enough cells
+                if (cells.length <= Math.max(fromIndex, toIndex)) {{
+                    return;
+                }}
+
+                // Get the cell to move
+                const cellToMove = cells[fromIndex];
+
+                // Insert the cell at the new position
+                if (fromIndex < toIndex) {{
+                    // Moving right
+                    row.insertBefore(cellToMove, cells[toIndex + 1]);
+                }} else {{
+                    // Moving left
+                    row.insertBefore(cellToMove, cells[toIndex]);
+                }}
+            }});
+
+            // Update column indices for sorting and filtering
+            updateColumnIndices();
+        }}
+
+        // Function to update column indices after reordering
+        function updateColumnIndices() {{
+            const table = document.getElementById('emailTable');
+            const headers = table.querySelectorAll('th');
+
+            // Update current sort column if needed
+            const headerIndex = Array.from(headers).findIndex(header =>
+                header.classList.contains('sorted-asc') || header.classList.contains('sorted-desc')
+            );
+
+            if (headerIndex !== -1) {{
+                currentSortColumn = headerIndex;
+            }}
+
+            // Re-apply filters
+            applyFilters();
+        }}
+
         // Function to refresh emails
         function refreshEmails() {{
             // Get the latest email date from the table
             const table = document.getElementById('emailTable');
-            const rows = Array.from(table.rows).slice(1); // Skip header row
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {{
+                console.error('No tbody element found in the table');
+                return;
+            }}
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
             let latestDate = null;
 
             // Find the latest date in the table
@@ -677,7 +900,13 @@ def create_html_index(output_dir, emails, folder_path):
         // Function to add new emails to the table
         function addNewEmailsToTable(newEmails) {{
             const table = document.getElementById('emailTable');
-            const tbody = table.tBodies[0] || table;
+
+            // Get the existing tbody or create a new one if it doesn't exist
+            let tbody = table.querySelector('tbody');
+            if (!tbody) {{
+                console.error('No tbody element found in the table');
+                return;
+            }}
 
             // Add each new email to the table
             newEmails.forEach(email => {{
@@ -719,6 +948,45 @@ def create_html_index(output_dir, emails, folder_path):
                     cellDescription.innerHTML = '<span class="empty-cell">N/A</span>';
                 }}
                 row.appendChild(cellDescription);
+
+                // Add support category
+                const cellCategory = document.createElement('td');
+                if (email.description) {{
+                    // Import the categorize_description function from support_categories.py
+                    // Since we can't directly call Python functions from JavaScript,
+                    // we'll categorize based on common keywords
+                    const description = email.description.toLowerCase();
+                    let category = "Other";
+
+                    // Check for AI Model Prediction & Extraction Issues
+                    if (description.includes("wrong vendor") ||
+                        description.includes("job") ||
+                        description.includes("tax") ||
+                        description.includes("amount") ||
+                        description.includes("missing") ||
+                        description.includes("prediction")) {{
+                        category = "AI Model Prediction & Extraction Issues";
+                    }}
+                    // Check for Document Processing Failures
+                    else if (description.includes("email") ||
+                             description.includes("document") ||
+                             description.includes("attachment") ||
+                             description.includes("upload")) {{
+                        category = "Document Processing Failures";
+                    }}
+                    // Check for System Bugs & Integration Issues
+                    else if (description.includes("error") ||
+                             description.includes("system") ||
+                             description.includes("bug") ||
+                             description.includes("integration")) {{
+                        category = "System Bugs & Integration Issues";
+                    }}
+
+                    cellCategory.textContent = category;
+                }} else {{
+                    cellCategory.innerHTML = '<span class="empty-cell">N/A</span>';
+                }}
+                row.appendChild(cellCategory);
 
                 // Add company name
                 const cellCompanyName = document.createElement('td');
@@ -806,19 +1074,21 @@ def create_html_index(output_dir, emails, folder_path):
                 cellReport.innerHTML = '<span class="empty-cell">N/A</span>';
                 row.appendChild(cellReport);
 
-                // Add the row to the table
+                // Add the row to the tbody
                 tbody.insertBefore(row, tbody.firstChild);
             }});
 
             // Update row numbers
-            const allRows = Array.from(table.rows).slice(1); // Skip header row
+            const allRows = Array.from(tbody.rows);
             allRows.forEach((row, index) => {{
                 row.cells[0].textContent = index + 1;
             }});
 
             // Update the email count
             const emailCount = document.getElementById('emailCount');
-            emailCount.textContent = allRows.length;
+            if (emailCount) {{
+                emailCount.textContent = allRows.length;
+            }}
 
             // Apply current column visibility settings
             for (let i = 1; i < 15; i++) {{
@@ -838,30 +1108,33 @@ def create_html_index(output_dir, emails, folder_path):
         // Initialize column visibility, sorting, and filters on page load
         window.onload = function() {{
             // Only show these columns by default: Subject, Subject Template, Date, Description,
-            // Company Name, Invoice ID, Invoice Number, User Email, and Report
+            // Support Category, Company Name, Invoice ID, Invoice Number, User Email, and Report
 
             // Hide Company ID
-            toggleColumn(6, false);
+            toggleColumn(7, false);
             // Invoice ID is now visible by default
             // Hide Client Name
-            toggleColumn(9, false);
-            // Hide Client ID
             toggleColumn(10, false);
+            // Hide Client ID
+            toggleColumn(11, false);
             // Hide User Name
-            toggleColumn(12, false);
-            // Hide User ID
             toggleColumn(13, false);
+            // Hide User ID
+            toggleColumn(14, false);
 
             // Update checkboxes to match initial state
-            document.getElementById('col6').checked = false;
-            document.getElementById('col7').checked = true; // Invoice ID is checked
-            document.getElementById('col9').checked = false;
-            document.getElementById('col10').checked = false;
-            document.getElementById('col12').checked = false;
-            document.getElementById('col13').checked = false;
+            document.getElementById('col7').checked = false; // Company ID
+            document.getElementById('col8').checked = true; // Invoice ID is checked
+            document.getElementById('col10').checked = false; // Client Name
+            document.getElementById('col11').checked = false; // Client ID
+            document.getElementById('col13').checked = false; // User Name
+            document.getElementById('col14').checked = false; // User ID
 
             // Setup column filters
             setupColumnFilters();
+
+            // Setup column reordering
+            setupColumnReordering();
 
             // Sort the table by date in descending order by default
             sortTable(3, 'date'); // Date is column index 3 (0-based)
@@ -885,38 +1158,43 @@ def create_html_index(output_dir, emails, folder_path):
             <div class="checkbox-item"><input type="checkbox" id="col2" checked onchange="toggleColumn(2, this.checked)"> <label for="col2">Subject Template</label></div>
             <div class="checkbox-item"><input type="checkbox" id="col3" checked onchange="toggleColumn(3, this.checked)"> <label for="col3">Date</label></div>
             <div class="checkbox-item"><input type="checkbox" id="col4" checked onchange="toggleColumn(4, this.checked)"> <label for="col4">Description</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col5" checked onchange="toggleColumn(5, this.checked)"> <label for="col5">Company Name</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col6" onchange="toggleColumn(6, this.checked)"> <label for="col6">Company ID</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col7" checked onchange="toggleColumn(7, this.checked)"> <label for="col7">Invoice ID</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col8" checked onchange="toggleColumn(8, this.checked)"> <label for="col8">Invoice Number</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col9" onchange="toggleColumn(9, this.checked)"> <label for="col9">Client Name</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col10" onchange="toggleColumn(10, this.checked)"> <label for="col10">Client ID</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col11" checked onchange="toggleColumn(11, this.checked)"> <label for="col11">User Email</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col12" onchange="toggleColumn(12, this.checked)"> <label for="col12">User Name</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col13" onchange="toggleColumn(13, this.checked)"> <label for="col13">User ID</label></div>
-            <div class="checkbox-item"><input type="checkbox" id="col14" checked onchange="toggleColumn(14, this.checked)"> <label for="col14">Report</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col5" checked onchange="toggleColumn(5, this.checked)"> <label for="col5">Support Category</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col6" checked onchange="toggleColumn(6, this.checked)"> <label for="col6">Company Name</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col7" onchange="toggleColumn(7, this.checked)"> <label for="col7">Company ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col8" checked onchange="toggleColumn(8, this.checked)"> <label for="col8">Invoice ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col9" checked onchange="toggleColumn(9, this.checked)"> <label for="col9">Invoice Number</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col10" onchange="toggleColumn(10, this.checked)"> <label for="col10">Client Name</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col11" onchange="toggleColumn(11, this.checked)"> <label for="col11">Client ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col12" checked onchange="toggleColumn(12, this.checked)"> <label for="col12">User Email</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col13" onchange="toggleColumn(13, this.checked)"> <label for="col13">User Name</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col14" onchange="toggleColumn(14, this.checked)"> <label for="col14">User ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col15" checked onchange="toggleColumn(15, this.checked)"> <label for="col15">Report</label></div>
         </div>
     </div>
 
     <div class="container">
         <table id="emailTable">
-            <tr>
-                <th>#</th>
-                <th>Subject</th>
-                <th>Subject Template</th>
-                <th>Date</th>
-                <th>Description</th>
-                <th>Company Name</th>
-                <th>Company ID</th>
-                <th>Invoice ID</th>
-                <th>Invoice Number</th>
-                <th>Client Name</th>
-                <th>Client ID</th>
-                <th>User Email</th>
-                <th>User Name</th>
-                <th>User ID</th>
-                <th>Report</th>
-            </tr>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Subject</th>
+                    <th>Subject Template</th>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Support Category</th>
+                    <th>Company Name</th>
+                    <th>Company ID</th>
+                    <th>Invoice ID</th>
+                    <th>Invoice Number</th>
+                    <th>Client Name</th>
+                    <th>Client ID</th>
+                    <th>User Email</th>
+                    <th>User Name</th>
+                    <th>User ID</th>
+                    <th>Report</th>
+                </tr>
+            </thead>
+            <tbody>
 """)
 
         for i, (subject, filename, email_data) in enumerate(reports):
@@ -946,10 +1224,85 @@ def create_html_index(output_dir, emails, folder_path):
                 # This ensures we have the latest data
                 from outlook_connector import OutlookConnector
                 connector = OutlookConnector()
+
+                # Ensure all attributes exist with default values if not present
+                if not hasattr(email_data, 'subject_template'):
+                    email_data.subject_template = ""
+                if not hasattr(email_data, 'description'):
+                    email_data.description = ""
+                if not hasattr(email_data, 'company_name'):
+                    email_data.company_name = ""
+                if not hasattr(email_data, 'company_id'):
+                    email_data.company_id = ""
+                if not hasattr(email_data, 'invoice_id'):
+                    email_data.invoice_id = ""
+                if not hasattr(email_data, 'invoice_number'):
+                    email_data.invoice_number = ""
+                if not hasattr(email_data, 'client_name'):
+                    email_data.client_name = ""
+                if not hasattr(email_data, 'client_id'):
+                    email_data.client_id = ""
+                if not hasattr(email_data, 'user_email'):
+                    email_data.user_email = ""
+                if not hasattr(email_data, 'user_name'):
+                    email_data.user_name = ""
+                if not hasattr(email_data, 'user_id'):
+                    email_data.user_id = ""
+                if not hasattr(email_data, 'invoice_id_url'):
+                    email_data.invoice_id_url = ""
+
+                # Extract structured data - this will populate client and user fields
                 connector._extract_structured_data(email_data)
 
+                # For older emails (lines 1-25), ensure client and user information is properly set
+                # If client_name is empty but company_name is set, use company_name as fallback
+                if not email_data.client_name and email_data.company_name:
+                    email_data.client_name = email_data.company_name
+
+                # If client_id is empty but company_id is set, use company_id as fallback
+                if not email_data.client_id and email_data.company_id:
+                    email_data.client_id = email_data.company_id
+                elif not email_data.client_id and email_data.client_name:
+                    # Generate a consistent ID based on the client name if no ID is found
+                    import hashlib
+                    email_data.client_id = hashlib.md5(email_data.client_name.encode()).hexdigest()[:8]
+
+                # If user_email is empty, use from_address as fallback
+                if not email_data.user_email:
+                    email_data.user_email = email_data.from_address
+
+                # If user_name is empty, try to extract from email address
+                if not email_data.user_name and email_data.user_email:
+                    # Try to extract name from the sender's address if available
+                    from_name = ""
+                    if 'From' in email_data.headers:
+                        from_header = email_data.headers['From']
+                        # Extract name from format "Name <email@example.com>"
+                        import re
+                        name_match = re.search(r'^([^<]+)<', from_header)
+                        if name_match:
+                            from_name = name_match.group(1).strip()
+
+                    if from_name:
+                        email_data.user_name = from_name
+                    else:
+                        # Use email username as fallback
+                        username = email_data.user_email.split('@')[0] if '@' in email_data.user_email else ""
+                        if username:
+                            # Convert username to a more readable format (e.g., john.doe -> John Doe)
+                            name_parts = re.split(r'[._-]', username)
+                            formatted_name = ' '.join(part.capitalize() for part in name_parts if part)
+                            email_data.user_name = formatted_name
+
+                # If user_id is empty but user_email is set, generate ID from email
+                if not email_data.user_id and email_data.user_email:
+                    # Generate a consistent ID based on the email address
+                    import hashlib
+                    email_data.user_id = hashlib.md5(email_data.user_email.encode()).hexdigest()[:8]
+
+                # Now extract the data
                 subject_template = email_data.subject_template
-                description = email_data.description if hasattr(email_data, 'description') else ""
+                description = email_data.description
                 company_name = email_data.company_name
                 company_id = email_data.company_id
                 invoice_id = email_data.invoice_id
@@ -967,26 +1320,28 @@ def create_html_index(output_dir, emails, folder_path):
                 return '<span class="empty-cell">N/A</span>'
 
             f.write(f"""
-            <tr>
-                <td>{i+1}</td>
-                <td>{subject}</td>
-                <td>{format_cell(subject_template)}</td>
-                <td>{format_cell(date_str)}</td>
-                <td>{format_cell(description)}</td>
-                <td>{format_cell(company_name)}</td>
-                <td>{format_cell(company_id)}</td>
-                <td>{format_cell(f'<a href="{email_data.invoice_id_url if hasattr(email_data, "invoice_id_url") and email_data.invoice_id_url else f"https://platform.apwizard.ai/ap-task/{invoice_id}"}" target="_blank">{invoice_id}</a>') if invoice_id else '<span class="empty-cell">N/A</span>'}</td>
-                <td>{format_cell(invoice_number)}</td>
-                <td>{format_cell(client_name)}</td>
-                <td>{format_cell(client_id)}</td>
-                <td>{format_cell(user_email)}</td>
-                <td>{format_cell(user_name)}</td>
-                <td>{format_cell(user_id)}</td>
-                <td><a href="{filename}" target="_blank">View Report</a></td>
-            </tr>
+                <tr>
+                    <td>{i+1}</td>
+                    <td>{subject}</td>
+                    <td>{format_cell(subject_template)}</td>
+                    <td>{format_cell(date_str)}</td>
+                    <td>{format_cell(description)}</td>
+                    <td>{format_cell(categorize_description(description))}</td>
+                    <td>{format_cell(company_name)}</td>
+                    <td>{format_cell(company_id)}</td>
+                    <td>{format_cell(f'<a href="{email_data.invoice_id_url if email_data.invoice_id_url else f"https://platform.apwizard.ai/ap-task/{invoice_id}"}" target="_blank">{invoice_id}</a>') if invoice_id else '<span class="empty-cell">N/A</span>'}</td>
+                    <td>{format_cell(invoice_number)}</td>
+                    <td>{format_cell(client_name)}</td>
+                    <td>{format_cell(client_id)}</td>
+                    <td>{format_cell(user_email)}</td>
+                    <td>{format_cell(user_name)}</td>
+                    <td>{format_cell(user_id)}</td>
+                    <td><a href="{filename}" target="_blank">View Report</a></td>
+                </tr>
 """)
 
         f.write("""
+            </tbody>
         </table>
     </div>
 </body>

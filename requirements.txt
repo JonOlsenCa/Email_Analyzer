@@ -1,7 +1,10 @@
-# No external dependencies required for basic functionality
-# The tool uses Python's standard library
+# Dependencies for Email Analyzer
+# The tool primarily uses Python's standard library
+
+# Required dependencies:
+pywin32>=228  # For Outlook integration
+requests>=2.25.1  # For Refresh functionality and URL validation
 
 # Optional dependencies for additional features:
 # extract-msg>=0.28.0  # For parsing MSG files
 # beautifulsoup4>=4.9.3  # For better HTML parsing
-# requests>=2.25.1  # For URL validation and checking

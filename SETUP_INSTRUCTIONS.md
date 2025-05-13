@@ -5,24 +5,32 @@ This document provides instructions for setting up the Email Analyzer to automat
 ## Initial Setup
 
 1. Make sure you have Python 3.6 or higher installed on your system.
-2. Install the required Python packages:
+2. Install the required Python packages by running the `install_dependencies.bat` file or using the following command:
    ```
-   pip install pywin32
+   pip install -r requirements.txt
    ```
 3. Make sure Microsoft Outlook is installed and configured with your email account.
 
-## Running the Email Analyzer Manually
+## Running the Email Analyzer
 
-To run the Email Analyzer manually:
+The easiest way to run the Email Analyzer is to use the provided batch file:
 
 1. Open Command Prompt
 2. Navigate to the Email_Analyzer directory
 3. Run the following command:
    ```
-   python analyze_outlook_emails.py
+   run_email_analyzer.bat
    ```
-   
-This will analyze all emails in the "APWizard_Tickets" folder in your Outlook inbox.
+
+This will:
+1. Start the Refresh Emails server (if it's not already running)
+2. Analyze all emails in the "APWizard_Tickets" folder in your Outlook inbox
+3. Open the results in your web browser
+
+You can also run the analyzer directly with:
+```
+python analyze_outlook_emails.py
+```
 
 ## Setting Up Automatic Monitoring
 
@@ -62,6 +70,18 @@ The analysis results are saved in the "analyzed_emails" directory. To view the r
 
 The index page is automatically updated whenever new emails are analyzed.
 
+### Using the Refresh Button
+
+The Email Analyzer includes a Refresh button that allows you to fetch new emails without restarting the application:
+
+1. Click the "Refresh" button in the top-left corner of the index page
+2. The analyzer will fetch any new emails that have arrived since the last analysis
+3. New emails will be added to the table automatically
+
+For the Refresh button to work, the Refresh Emails server must be running. This server is automatically started when you run `run_email_analyzer.bat`.
+
+For more information about the Refresh functionality, see the `REFRESH_INSTRUCTIONS.md` file.
+
 ## Customizing the Configuration
 
 If you want to change the configuration (e.g., monitor a different folder or email account), you can edit the `monitor_new_emails.py` file:
@@ -83,4 +103,17 @@ If you encounter any issues:
 3. Make sure the specified folder exists in your Outlook account
 4. Try running the script manually to see if there are any errors
 
-For more detailed information, refer to the README.md and OUTLOOK_README.md files.
+### Refresh Button Issues
+
+If the Refresh button shows an error:
+
+1. Make sure the Refresh Emails server is running
+   - Look for a command window titled "Refresh Emails Server"
+   - If it's not running, run `start_refresh_server.bat`
+2. If the server is running but the button still doesn't work:
+   - Try stopping the server with `stop_refresh_server.bat`
+   - Then start it again with `start_refresh_server.bat`
+3. Make sure you have the required dependencies installed
+   - Run `install_dependencies.bat` to install them
+
+For more detailed information, refer to the README.md, OUTLOOK_README.md, and REFRESH_INSTRUCTIONS.md files.

@@ -344,11 +344,21 @@ class OutlookConnector:
             client_name_match = re.search(r'Client\s*Name:?\s*([^\n]+)', body, re.IGNORECASE)
             if client_name_match:
                 email_data.client_name = client_name_match.group(1).strip()
+            elif email_data.company_name:
+                # Use company name as fallback for client name if not found
+                email_data.client_name = email_data.company_name
 
             # Extract Client ID - format: "Client ID: 7cebab3c-f1e8-403f-9681-f23e23a28267"
             client_id_match = re.search(r'Client\s*ID:?\s*([A-Za-z0-9\-_]+)', body, re.IGNORECASE)
             if client_id_match:
                 email_data.client_id = client_id_match.group(1).strip()
+            elif email_data.company_id:
+                # Use company ID as fallback for client ID if not found
+                email_data.client_id = email_data.company_id
+            elif email_data.client_name:
+                # Generate a consistent ID based on the client name if no ID is found
+                import hashlib
+                email_data.client_id = hashlib.md5(email_data.client_name.encode()).hexdigest()[:8]
 
             # Extract User Email - format: "User Email: Tracy.Eley@goblusky.com"
             user_email_match = re.search(r'User\s*Email:?\s*([^\s\n]+@[^\s\n]+)', body, re.IGNORECASE)
@@ -357,7 +367,7 @@ class OutlookConnector:
             else:
                 # If not found explicitly, check if there's an email in the body
                 email_in_body = re.search(r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', body)
-                if email_in_body:
+                if email_in_body and email_in_body.group(1).strip() != email_data.from_address:
                     email_data.user_email = email_in_body.group(1).strip()
                 else:
                     # Use the sender's email as a fallback
@@ -367,14 +377,40 @@ class OutlookConnector:
             user_name_match = re.search(r'User\s*Name:?\s*([^\n]+)', body, re.IGNORECASE)
             if user_name_match:
                 email_data.user_name = user_name_match.group(1).strip()
+            else:
+                # Try to extract name from the sender's address if available
+                from_name = ""
+                if 'From' in email_data.headers:
+                    from_header = email_data.headers['From']
+                    # Extract name from format "Name <email@example.com>"
+                    name_match = re.search(r'^([^<]+)<', from_header)
+                    if name_match:
+                        from_name = name_match.group(1).strip()
+
+                if from_name:
+                    email_data.user_name = from_name
+                else:
+                    # Use email username as fallback
+                    username = email_data.from_address.split('@')[0] if '@' in email_data.from_address else ""
+                    if username:
+                        # Convert username to a more readable format (e.g., john.doe -> John Doe)
+                        name_parts = re.split(r'[._-]', username)
+                        formatted_name = ' '.join(part.capitalize() for part in name_parts if part)
+                        email_data.user_name = formatted_name
 
             # Extract User ID - format: "User ID: b97c35a4-4e5f-4932-ba4f-58e43c44c61e"
             user_id_match = re.search(r'User\s*ID:?\s*([A-Za-z0-9\-_]+)', body, re.IGNORECASE)
             if user_id_match:
                 email_data.user_id = user_id_match.group(1).strip()
+            else:
+                # Generate a consistent ID based on the email address if no ID is found
+                import hashlib
+                if email_data.user_email:
+                    # Create a deterministic ID based on the email address
+                    email_data.user_id = hashlib.md5(email_data.user_email.encode()).hexdigest()[:8]
 
             # If we have HTML body, try to extract from there as well if we're missing data
-            if email_data.body_html and (not email_data.invoice_id or not email_data.company_name):
+            if email_data.body_html:
                 html_body = email_data.body_html
 
                 # Extract from HTML using more specific patterns that might appear in the HTML
@@ -382,18 +418,93 @@ class OutlookConnector:
                     invoice_id_html = re.search(r'Invoice\s*ID:?\s*<[^>]*>([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
                     if invoice_id_html:
                         email_data.invoice_id = invoice_id_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        invoice_id_html = re.search(r'Invoice\s*ID:?\s*([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                        if invoice_id_html:
+                            email_data.invoice_id = invoice_id_html.group(1).strip()
 
                 if not email_data.invoice_number:
                     invoice_number_html = re.search(r'Invoice\s*Number:?\s*<[^>]*>(\d+)', html_body, re.IGNORECASE)
                     if invoice_number_html:
                         email_data.invoice_number = invoice_number_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        invoice_number_html = re.search(r'Invoice\s*Number:?\s*(\d+)', html_body, re.IGNORECASE)
+                        if invoice_number_html:
+                            email_data.invoice_number = invoice_number_html.group(1).strip()
 
                 if not email_data.company_name:
                     company_name_html = re.search(r'Company\s*Name:?\s*<[^>]*>([^<]+)', html_body, re.IGNORECASE)
                     if company_name_html:
                         email_data.company_name = company_name_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        company_name_html = re.search(r'Company\s*Name:?\s*([^\n<]+)', html_body, re.IGNORECASE)
+                        if company_name_html:
+                            email_data.company_name = company_name_html.group(1).strip()
 
-                # Extract other fields similarly if needed
+                if not email_data.company_id:
+                    company_id_html = re.search(r'Company\s*ID:?\s*<[^>]*>([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                    if company_id_html:
+                        email_data.company_id = company_id_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        company_id_html = re.search(r'Company\s*ID:?\s*([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                        if company_id_html:
+                            email_data.company_id = company_id_html.group(1).strip()
+
+                # Extract client information from HTML if not already found
+                if not email_data.client_name:
+                    client_name_html = re.search(r'Client\s*Name:?\s*<[^>]*>([^<]+)', html_body, re.IGNORECASE)
+                    if client_name_html:
+                        email_data.client_name = client_name_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        client_name_html = re.search(r'Client\s*Name:?\s*([^\n<]+)', html_body, re.IGNORECASE)
+                        if client_name_html:
+                            email_data.client_name = client_name_html.group(1).strip()
+
+                if not email_data.client_id:
+                    client_id_html = re.search(r'Client\s*ID:?\s*<[^>]*>([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                    if client_id_html:
+                        email_data.client_id = client_id_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        client_id_html = re.search(r'Client\s*ID:?\s*([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                        if client_id_html:
+                            email_data.client_id = client_id_html.group(1).strip()
+
+                # Extract user information from HTML if not already found
+                if not email_data.user_name:
+                    user_name_html = re.search(r'User\s*Name:?\s*<[^>]*>([^<]+)', html_body, re.IGNORECASE)
+                    if user_name_html:
+                        email_data.user_name = user_name_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        user_name_html = re.search(r'User\s*Name:?\s*([^\n<]+)', html_body, re.IGNORECASE)
+                        if user_name_html:
+                            email_data.user_name = user_name_html.group(1).strip()
+
+                if not email_data.user_id:
+                    user_id_html = re.search(r'User\s*ID:?\s*<[^>]*>([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                    if user_id_html:
+                        email_data.user_id = user_id_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        user_id_html = re.search(r'User\s*ID:?\s*([A-Za-z0-9\-_]+)', html_body, re.IGNORECASE)
+                        if user_id_html:
+                            email_data.user_id = user_id_html.group(1).strip()
+
+                if not email_data.user_email:
+                    user_email_html = re.search(r'User\s*Email:?\s*<[^>]*>([^\s<>]+@[^\s<>]+)', html_body, re.IGNORECASE)
+                    if user_email_html:
+                        email_data.user_email = user_email_html.group(1).strip()
+                    else:
+                        # Try a more general pattern
+                        user_email_html = re.search(r'User\s*Email:?\s*([^\s<>\n]+@[^\s<>\n]+)', html_body, re.IGNORECASE)
+                        if user_email_html:
+                            email_data.user_email = user_email_html.group(1).strip()
 
     def _save_as_eml(self, item, output_dir):
         """
