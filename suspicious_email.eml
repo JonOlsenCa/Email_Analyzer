@@ -1,0 +1,54 @@
+From: security@bank-secure-verify.com
+To: victim@example.com
+Subject: URGENT: Your Account Has Been Suspended
+Date: Mon, 13 May 2023 10:00:00 -0400
+Message-ID: <phish123@bank-secure-verify.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="boundary-string"
+
+--boundary-string
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+URGENT: Your Account Has Been Suspended
+
+Dear Valued Customer,
+
+We have detected unusual activity on your account. Your account has been temporarily suspended for security reasons.
+
+To verify your identity and restore your account access, please click on the following link:
+https://bank-secure-verify.com/login?token=abc123
+
+If you do not verify your account within 24 hours, your account will be permanently suspended.
+
+Please do not reply to this email. This is an automated message.
+
+Security Team
+Bank of America
+
+--boundary-string
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<html>
+<head>
+  <title>URGENT: Your Account Has Been Suspended</title>
+</head>
+<body>
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ccc; padding: 20px;">
+    <h2 style="color: #cc0000;">URGENT: Your Account Has Been Suspended</h2>
+    <p>Dear Valued Customer,</p>
+    <p><strong>We have detected unusual activity on your account. Your account has been temporarily suspended for security reasons.</strong></p>
+    <p>To verify your identity and restore your account access, please click on the button below:</p>
+    <p style="text-align: center;">
+      <a href="https://bank-secure-verify.com/login?token=abc123" style="display: inline-block; background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Verify Account Now</a>
+    </p>
+    <p>If you do not verify your account within 24 hours, your account will be permanently suspended.</p>
+    <p style="font-size: 12px; color: #666;">Please do not reply to this email. This is an automated message.</p>
+    <p style="font-size: 12px; color: #666;">Security Team<br>Bank of America</p>
+    <img src="https://bank-secure-verify.com/tracking.png" width="1" height="1" style="display: none;">
+  </div>
+</body>
+</html>
+
+--boundary-string--

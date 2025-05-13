@@ -1,0 +1,7 @@
+# No external dependencies required for basic functionality
+# The tool uses Python's standard library
+
+# Optional dependencies for additional features:
+# extract-msg>=0.28.0  # For parsing MSG files
+# beautifulsoup4>=4.9.3  # For better HTML parsing
+# requests>=2.25.1  # For URL validation and checking

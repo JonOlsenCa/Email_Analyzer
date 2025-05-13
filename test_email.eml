@@ -1,0 +1,40 @@
+From: sender@example.com
+To: recipient@example.com
+Subject: Test Email for Analysis
+Date: Mon, 13 May 2023 10:00:00 -0400
+Message-ID: <test123@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="boundary-string"
+
+--boundary-string
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hello,
+
+This is a test email for the Email Analyzer tool. 
+
+Please verify your account by clicking on the following link:
+https://example.com/verify?token=abc123
+
+Thank you,
+Test Sender
+
+--boundary-string
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<html>
+<head>
+  <title>Test Email</title>
+</head>
+<body>
+  <p>Hello,</p>
+  <p>This is a test email for the Email Analyzer tool.</p>
+  <p>Please verify your account by clicking on the following link:</p>
+  <p><a href="https://example.com/verify?token=abc123">Verify Account</a></p>
+  <p>Thank you,<br>Test Sender</p>
+</body>
+</html>
+
+--boundary-string--
