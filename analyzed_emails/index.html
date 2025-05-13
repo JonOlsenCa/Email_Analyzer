@@ -1,0 +1,2509 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Email Analysis Reports - Inbox/APWizard_Tickets</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333366; }
+        table { border-collapse: collapse; width: 100%; overflow-x: auto; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+        th:hover { background-color: #ddd; }
+        th.sorted-asc::after { content: " ▲"; }
+        th.sorted-desc::after { content: " ▼"; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #f2f2f2; }
+        .timestamp { color: #666; font-size: 0.8em; }
+        .container { overflow-x: auto; }
+        .empty-cell { color: #999; font-style: italic; }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: #f9f9f9;
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1;
+            padding: 12px 16px;
+        }
+        .dropdown { position: relative; display: inline-block; }
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .checkbox-item { margin: 5px 0; }
+        .filter-container {
+            display: none;
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            z-index: 100;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-height: 300px;
+            overflow-y: auto;
+            min-width: 200px;
+            /* Ensure the container stays within its parent */
+            box-sizing: border-box;
+        }
+        .filter-option { margin: 5px 0; }
+        .filter-search {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .filter-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        .filter-buttons button {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .refresh-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 10px 0;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .refresh-btn:hover {
+            background-color: #45a049;
+        }
+        .refresh-btn:disabled {
+            background-color: #cccccc;
+            color: #666666;
+            cursor: not-allowed;
+        }
+
+        /* Styles for column reordering */
+        th.draggable {
+            cursor: move;
+        }
+
+        th.dragging {
+            opacity: 0.5;
+            background-color: #aaf;
+        }
+
+        th.drop-target {
+            border: 2px dashed #00f;
+        }
+    </style>
+    <script>
+        // Global variables to track current sort state
+        let currentSortColumn = 3; // Default sort by Date column (0-based index)
+        let currentSortDirection = 'desc'; // Default sort direction is descending
+        let activeFilters = {}; // Store active filters for each column
+        let allTableData = []; // Store all table data for filtering
+
+        function toggleColumns() {
+            const dropdown = document.getElementById('columnDropdown');
+            dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function toggleColumn(colIndex, checked) {
+            const table = document.getElementById('emailTable');
+
+            // Get the thead and tbody elements
+            const thead = table.querySelector('thead');
+            const tbody = table.querySelector('tbody');
+
+            if (thead) {
+                // Handle header cells
+                const headerRows = thead.getElementsByTagName('tr');
+                for (let i = 0; i < headerRows.length; i++) {
+                    const cells = headerRows[i].getElementsByTagName('th');
+                    if (cells.length > colIndex) {
+                        cells[colIndex].style.display = checked ? '' : 'none';
+                    }
+                }
+            }
+
+            if (tbody) {
+                // Handle body cells
+                const bodyRows = tbody.getElementsByTagName('tr');
+                for (let i = 0; i < bodyRows.length; i++) {
+                    const cells = bodyRows[i].getElementsByTagName('td');
+                    if (cells.length > colIndex) {
+                        cells[colIndex].style.display = checked ? '' : 'none';
+                    }
+                }
+            }
+        }
+
+        // Function to get cell text content, handling special cases
+        function getCellValue(row, index) {
+            const cell = row.cells[index];
+            if (!cell) return '';
+
+            // If cell contains an anchor tag, get the text from that
+            const anchor = cell.querySelector('a');
+            if (anchor) return anchor.textContent.trim();
+
+            // If cell contains a span with class 'empty-cell', treat as empty
+            const emptyCell = cell.querySelector('.empty-cell');
+            if (emptyCell) return '';
+
+            // Otherwise, get the text content
+            return cell.textContent.trim();
+        }
+
+        // Function to compare values for sorting
+        function compareValues(a, b, type, direction) {
+            // Handle empty values
+            if (a === '' && b === '') return 0;
+            if (a === '') return direction === 'asc' ? 1 : -1;
+            if (b === '') return direction === 'asc' ? -1 : 1;
+
+            // Compare based on data type
+            if (type === 'date') {
+                // Parse dates and compare
+                const dateA = new Date(a);
+                const dateB = new Date(b);
+                return direction === 'asc'
+                    ? dateA - dateB
+                    : dateB - dateA;
+            } else if (type === 'number') {
+                // Parse numbers and compare
+                const numA = parseFloat(a.replace(/[^0-9.-]+/g, ''));
+                const numB = parseFloat(b.replace(/[^0-9.-]+/g, ''));
+                return direction === 'asc'
+                    ? numA - numB
+                    : numB - numA;
+            } else {
+                // Default string comparison
+                return direction === 'asc'
+                    ? a.localeCompare(b)
+                    : b.localeCompare(a);
+            }
+        }
+
+        // Function to sort the table by a specific column
+        function sortTable(columnIndex, dataType = 'string') {
+            const table = document.getElementById('emailTable');
+            const headers = table.querySelectorAll('th');
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {
+                console.error('No tbody element found in the table');
+                return;
+            }
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
+
+            // Determine sort direction
+            let direction = 'asc';
+            if (columnIndex === currentSortColumn) {
+                // If already sorting by this column, toggle direction
+                direction = currentSortDirection === 'asc' ? 'desc' : 'asc';
+            }
+
+            // Update sort indicators in headers
+            headers.forEach(header => {
+                header.classList.remove('sorted-asc', 'sorted-desc');
+            });
+            headers[columnIndex].classList.add(direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+
+            // Sort the rows
+            rows.sort((rowA, rowB) => {
+                const valueA = getCellValue(rowA, columnIndex);
+                const valueB = getCellValue(rowB, columnIndex);
+                return compareValues(valueA, valueB, dataType, direction);
+            });
+
+            // Reorder the rows in the tbody
+            rows.forEach(row => tbody.appendChild(row));
+
+            // Update row numbers
+            rows.forEach((row, index) => {
+                row.cells[0].textContent = index + 1;
+            });
+
+            // Update current sort state
+            currentSortColumn = columnIndex;
+            currentSortDirection = direction;
+        }
+
+        // Function to create and show filter dropdown for a column
+        function showFilter(columnIndex, event) {
+            // Don't sort when clicking on filter
+            event.stopPropagation();
+
+            // Remove any existing filter containers
+            const existingContainers = document.querySelectorAll('.filter-container');
+            existingContainers.forEach(container => container.remove());
+
+            // Get unique values for this column
+            const table = document.getElementById('emailTable');
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {
+                console.error('No tbody element found in the table');
+                return;
+            }
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
+            const values = new Set();
+
+            rows.forEach(row => {
+                const value = getCellValue(row, columnIndex);
+                if (value) values.add(value);
+            });
+
+            // Create filter container
+            const thead = table.querySelector('thead');
+            if (!thead || !thead.rows || !thead.rows[0]) {
+                console.error('No thead rows found in the table');
+                return;
+            }
+
+            // Get the header cell for this column
+            const header = thead.rows[0].cells[columnIndex];
+
+            // Create the filter container
+            const container = document.createElement('div');
+            container.className = 'filter-container';
+
+            // Store the column index as a data attribute to ensure we're filtering the correct column
+            container.dataset.columnIndex = columnIndex.toString();
+
+            // Add search input
+            const search = document.createElement('input');
+            search.type = 'text';
+            search.className = 'filter-search';
+            search.placeholder = 'Search...';
+            search.addEventListener('input', function() {
+                const searchText = this.value.toLowerCase();
+                const options = container.querySelectorAll('.filter-option');
+                options.forEach(option => {
+                    const text = option.textContent.toLowerCase();
+                    option.style.display = text.includes(searchText) ? '' : 'none';
+                });
+            });
+            container.appendChild(search);
+
+            // Add "Select All" option
+            const allOption = document.createElement('div');
+            allOption.className = 'filter-option';
+            const allCheckbox = document.createElement('input');
+            allCheckbox.type = 'checkbox';
+            allCheckbox.checked = !activeFilters[columnIndex];
+            allCheckbox.addEventListener('change', function() {
+                const options = container.querySelectorAll('.filter-option input[type="checkbox"]');
+                options.forEach(option => {
+                    option.checked = this.checked;
+                });
+            });
+            allOption.appendChild(allCheckbox);
+            allOption.appendChild(document.createTextNode(' Select All'));
+            container.appendChild(allOption);
+
+            // Add options for each unique value
+            const sortedValues = Array.from(values).sort();
+            sortedValues.forEach(value => {
+                const option = document.createElement('div');
+                option.className = 'filter-option';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = value;
+                checkbox.checked = !activeFilters[columnIndex] ||
+                                  (activeFilters[columnIndex] &&
+                                   activeFilters[columnIndex].includes(value));
+
+                option.appendChild(checkbox);
+                option.appendChild(document.createTextNode(' ' + value));
+                container.appendChild(option);
+            });
+
+            // Add filter buttons
+            const buttonContainer = document.createElement('div');
+            buttonContainer.className = 'filter-buttons';
+
+            const applyButton = document.createElement('button');
+            applyButton.textContent = 'Apply Filter';
+            applyButton.addEventListener('click', function() {
+                const selectedValues = [];
+                const options = container.querySelectorAll('.filter-option:not(:first-child) input:checked');
+                options.forEach(option => {
+                    selectedValues.push(option.value);
+                });
+
+                // Get the column index from the data attribute to ensure we're using the correct column
+                const colIndex = parseInt(container.dataset.columnIndex);
+
+                if (selectedValues.length === 0 || selectedValues.length === sortedValues.length) {
+                    // If none or all selected, remove filter
+                    delete activeFilters[colIndex];
+                } else {
+                    // Otherwise, set filter
+                    activeFilters[colIndex] = selectedValues;
+                }
+
+                applyFilters();
+                container.remove();
+            });
+
+            const clearButton = document.createElement('button');
+            clearButton.textContent = 'Clear';
+            clearButton.addEventListener('click', function() {
+                // Get the column index from the data attribute to ensure we're using the correct column
+                const colIndex = parseInt(container.dataset.columnIndex);
+                delete activeFilters[colIndex];
+                applyFilters();
+                container.remove();
+            });
+
+            buttonContainer.appendChild(clearButton);
+            buttonContainer.appendChild(applyButton);
+            container.appendChild(buttonContainer);
+
+            // Add the container to the document body instead of the header
+            // This prevents positioning issues when the header has relative positioning
+            document.body.appendChild(container);
+
+            // Position the container relative to the header
+            const headerRect = header.getBoundingClientRect();
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+            container.style.position = 'absolute';
+            container.style.top = (headerRect.bottom + scrollTop) + 'px';
+            container.style.left = (headerRect.left + scrollLeft) + 'px';
+            container.style.width = headerRect.width + 'px';
+            container.style.display = 'block';
+
+            // Close when clicking outside
+            document.addEventListener('click', function closeFilter(e) {
+                // Check if the click is outside the container and not on the filter button
+                if (!container.contains(e.target) &&
+                    e.target !== header &&
+                    !header.contains(e.target)) {
+                    container.remove();
+                    document.removeEventListener('click', closeFilter);
+                }
+            });
+        }
+
+        // Function to apply all active filters
+        function applyFilters() {
+            const table = document.getElementById('emailTable');
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {
+                console.error('No tbody element found in the table');
+                return;
+            }
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
+
+            // Show all rows first
+            rows.forEach(row => {
+                row.style.display = '';
+            });
+
+            // Apply each active filter
+            Object.keys(activeFilters).forEach(columnIndex => {
+                const allowedValues = activeFilters[columnIndex];
+                if (!allowedValues || allowedValues.length === 0) return;
+
+                rows.forEach(row => {
+                    // Skip already hidden rows
+                    if (row.style.display === 'none') return;
+
+                    const value = getCellValue(row, parseInt(columnIndex));
+                    if (!allowedValues.includes(value)) {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+
+            // Update row numbers for visible rows
+            let visibleIndex = 1;
+            rows.forEach(row => {
+                if (row.style.display !== 'none') {
+                    row.cells[0].textContent = visibleIndex++;
+                }
+            });
+        }
+
+        // Function to add filter buttons to headers
+        function setupColumnFilters() {
+            const table = document.getElementById('emailTable');
+            const thead = table.querySelector('thead');
+            if (!thead) {
+                console.error('No thead element found in the table');
+                return;
+            }
+            const headers = thead.querySelectorAll('th');
+
+            // Add filter buttons to ALL headers including the first column (#)
+            for (let i = 0; i < headers.length; i++) {
+                const header = headers[i];
+
+                // Make header clickable for sorting
+                header.addEventListener('click', function() {
+                    // Determine data type for this column
+                    let dataType = 'string';
+                    if (i === 3) dataType = 'date'; // Date column
+                    if (i === 9) dataType = 'number'; // Invoice Number column
+
+                    sortTable(i, dataType);
+                });
+
+                // Add filter button
+                const filterBtn = document.createElement('span');
+                filterBtn.innerHTML = ' 🔍';
+                filterBtn.style.cursor = 'pointer';
+                filterBtn.style.fontSize = '12px';
+                filterBtn.title = 'Filter';
+                filterBtn.addEventListener('click', function(event) {
+                    // Stop propagation to prevent sorting when clicking filter
+                    event.stopPropagation();
+                    showFilter(i, event);
+                });
+
+                header.appendChild(filterBtn);
+            }
+        }
+
+        // Function to setup column reordering
+        function setupColumnReordering() {
+            const table = document.getElementById('emailTable');
+            const thead = table.querySelector('thead');
+            if (!thead) {
+                console.error('No thead element found in the table');
+                return;
+            }
+            const headers = thead.querySelectorAll('th');
+
+            // Make all headers draggable, including the first column (#)
+            for (let i = 0; i < headers.length; i++) {
+                const header = headers[i];
+
+                // Make header draggable
+                header.classList.add('draggable');
+                header.setAttribute('draggable', 'true');
+
+                // Add drag events
+                header.addEventListener('dragstart', handleDragStart);
+                header.addEventListener('dragover', handleDragOver);
+                header.addEventListener('dragenter', handleDragEnter);
+                header.addEventListener('dragleave', handleDragLeave);
+                header.addEventListener('drop', handleDrop);
+                header.addEventListener('dragend', handleDragEnd);
+            }
+        }
+
+        // Variables to track dragged column
+        let draggedColumn = null;
+        let draggedColumnIndex = -1;
+
+        // Handle drag start
+        function handleDragStart(e) {
+            draggedColumn = this;
+            draggedColumnIndex = Array.from(draggedColumn.parentNode.children).indexOf(draggedColumn);
+
+            // Set data transfer
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+
+            // Add dragging class
+            this.classList.add('dragging');
+        }
+
+        // Handle drag over
+        function handleDragOver(e) {
+            if (e.preventDefault) {
+                e.preventDefault();
+            }
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        // Handle drag enter
+        function handleDragEnter(e) {
+            this.classList.add('drop-target');
+        }
+
+        // Handle drag leave
+        function handleDragLeave(e) {
+            this.classList.remove('drop-target');
+        }
+
+        // Handle drop
+        function handleDrop(e) {
+            if (e.stopPropagation) {
+                e.stopPropagation();
+            }
+
+            if (draggedColumn !== this) {
+                // Get the target column index
+                const targetColumnIndex = Array.from(this.parentNode.children).indexOf(this);
+
+                // Move the column
+                moveColumn(draggedColumnIndex, targetColumnIndex);
+            }
+
+            return false;
+        }
+
+        // Handle drag end
+        function handleDragEnd(e) {
+            // Remove all drag classes
+            const headers = document.querySelectorAll('th');
+            headers.forEach(header => {
+                header.classList.remove('dragging');
+                header.classList.remove('drop-target');
+            });
+
+            // Reset drag variables
+            draggedColumn = null;
+            draggedColumnIndex = -1;
+        }
+
+        // Function to move a column
+        function moveColumn(fromIndex, toIndex) {
+            const table = document.getElementById('emailTable');
+            const rows = table.querySelectorAll('tr');
+
+            // Move column in each row
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('th, td');
+
+                // Skip if row doesn't have enough cells
+                if (cells.length <= Math.max(fromIndex, toIndex)) {
+                    return;
+                }
+
+                // Get the cell to move
+                const cellToMove = cells[fromIndex];
+
+                // Insert the cell at the new position
+                if (fromIndex < toIndex) {
+                    // Moving right
+                    row.insertBefore(cellToMove, cells[toIndex + 1]);
+                } else {
+                    // Moving left
+                    row.insertBefore(cellToMove, cells[toIndex]);
+                }
+            });
+
+            // Update column indices for sorting and filtering
+            updateColumnIndices();
+        }
+
+        // Function to update column indices after reordering
+        function updateColumnIndices() {
+            const table = document.getElementById('emailTable');
+            const headers = table.querySelectorAll('th');
+
+            // Update current sort column if needed
+            const headerIndex = Array.from(headers).findIndex(header =>
+                header.classList.contains('sorted-asc') || header.classList.contains('sorted-desc')
+            );
+
+            if (headerIndex !== -1) {
+                currentSortColumn = headerIndex;
+            }
+
+            // Re-apply filters
+            applyFilters();
+        }
+
+        // Function to refresh emails
+        function refreshEmails() {
+            // Get the latest email date from the table
+            const table = document.getElementById('emailTable');
+
+            // Get the tbody element
+            const tbody = table.querySelector('tbody');
+            if (!tbody) {
+                console.error('No tbody element found in the table');
+                return;
+            }
+
+            // Get all rows from the tbody
+            const rows = Array.from(tbody.rows);
+            let latestDate = null;
+
+            // Find the latest date in the table
+            rows.forEach(row => {
+                const dateCell = row.cells[3]; // Date is in column 3 (0-based index)
+                if (dateCell) {
+                    const dateStr = dateCell.textContent.trim();
+                    if (dateStr && dateStr !== 'N/A') {
+                        const date = new Date(dateStr);
+                        if (!isNaN(date) && (!latestDate || date > latestDate)) {
+                            latestDate = date;
+                        }
+                    }
+                }
+            });
+
+            // Format the date for the API request
+            const latestDateStr = latestDate ?
+                latestDate.getFullYear() + '-' +
+                String(latestDate.getMonth() + 1).padStart(2, '0') + '-' +
+                String(latestDate.getDate()).padStart(2, '0') + ' ' +
+                String(latestDate.getHours()).padStart(2, '0') + ':' +
+                String(latestDate.getMinutes()).padStart(2, '0') + ':' +
+                String(latestDate.getSeconds()).padStart(2, '0') : '';
+
+            // Disable the refresh button and show loading state
+            const refreshBtn = document.getElementById('refreshButton');
+            const originalText = refreshBtn.textContent;
+            refreshBtn.textContent = 'Refreshing...';
+            refreshBtn.disabled = true;
+
+            // Make API request to get new emails
+            fetch('http://localhost:8001/refresh?latest_email_date=' + encodeURIComponent(latestDateStr))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const newEmails = data.new_emails;
+                        if (newEmails && newEmails.length > 0) {
+                            // Add new emails to the table
+                            addNewEmailsToTable(newEmails);
+                            alert('Added ' + newEmails.length + ' new email(s)');
+                        } else {
+                            alert('No new emails found');
+                        }
+                    } else {
+                        alert('Failed to refresh emails: ' + (data.error || 'Unknown error'));
+                    }
+                    refreshBtn.textContent = originalText;
+                    refreshBtn.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error refreshing emails:', error);
+                    alert('An error occurred while refreshing emails. Please try again.');
+                    refreshBtn.textContent = originalText;
+                    refreshBtn.disabled = false;
+                });
+        }
+
+        // Function to add new emails to the table
+        function addNewEmailsToTable(newEmails) {
+            const table = document.getElementById('emailTable');
+
+            // Get the existing tbody or create a new one if it doesn't exist
+            let tbody = table.querySelector('tbody');
+            if (!tbody) {
+                console.error('No tbody element found in the table');
+                return;
+            }
+
+            // Add each new email to the table
+            newEmails.forEach(email => {
+                const row = document.createElement('tr');
+
+                // Add row number (will be updated later)
+                const cellNum = document.createElement('td');
+                cellNum.textContent = '0';
+                row.appendChild(cellNum);
+
+                // Add subject
+                const cellSubject = document.createElement('td');
+                cellSubject.textContent = email.subject;
+                row.appendChild(cellSubject);
+
+                // Add subject template
+                const cellSubjectTemplate = document.createElement('td');
+                if (email.subject_template) {
+                    cellSubjectTemplate.textContent = email.subject_template;
+                } else {
+                    cellSubjectTemplate.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellSubjectTemplate);
+
+                // Add date
+                const cellDate = document.createElement('td');
+                if (email.date) {
+                    cellDate.textContent = email.date;
+                } else {
+                    cellDate.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellDate);
+
+                // Add description
+                const cellDescription = document.createElement('td');
+                if (email.description) {
+                    cellDescription.textContent = email.description;
+                } else {
+                    cellDescription.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellDescription);
+
+                // Add support category
+                const cellCategory = document.createElement('td');
+                if (email.description) {
+                    // Import the categorize_description function from support_categories.py
+                    // Since we can't directly call Python functions from JavaScript,
+                    // we'll categorize based on common keywords
+                    const description = email.description.toLowerCase();
+                    let category = "Other";
+
+                    // Check for AI Model Prediction & Extraction Issues
+                    if (description.includes("wrong vendor") ||
+                        description.includes("job") ||
+                        description.includes("tax") ||
+                        description.includes("amount") ||
+                        description.includes("missing") ||
+                        description.includes("prediction")) {
+                        category = "AI Model Prediction & Extraction Issues";
+                    }
+                    // Check for Document Processing Failures
+                    else if (description.includes("email") ||
+                             description.includes("document") ||
+                             description.includes("attachment") ||
+                             description.includes("upload")) {
+                        category = "Document Processing Failures";
+                    }
+                    // Check for System Bugs & Integration Issues
+                    else if (description.includes("error") ||
+                             description.includes("system") ||
+                             description.includes("bug") ||
+                             description.includes("integration")) {
+                        category = "System Bugs & Integration Issues";
+                    }
+
+                    cellCategory.textContent = category;
+                } else {
+                    cellCategory.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellCategory);
+
+                // Add company name
+                const cellCompanyName = document.createElement('td');
+                if (email.company_name) {
+                    cellCompanyName.textContent = email.company_name;
+                } else {
+                    cellCompanyName.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellCompanyName);
+
+                // Add company ID
+                const cellCompanyId = document.createElement('td');
+                if (email.company_id) {
+                    cellCompanyId.textContent = email.company_id;
+                } else {
+                    cellCompanyId.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellCompanyId);
+
+                // Add invoice ID
+                const cellInvoiceId = document.createElement('td');
+                if (email.invoice_id) {
+                    cellInvoiceId.innerHTML = '<a href="https://platform.apwizard.ai/ap-task/' + email.invoice_id + '" target="_blank">' + email.invoice_id + '</a>';
+                } else {
+                    cellInvoiceId.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellInvoiceId);
+
+                // Add invoice number
+                const cellInvoiceNumber = document.createElement('td');
+                if (email.invoice_number) {
+                    cellInvoiceNumber.textContent = email.invoice_number;
+                } else {
+                    cellInvoiceNumber.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellInvoiceNumber);
+
+                // Add client name
+                const cellClientName = document.createElement('td');
+                if (email.client_name) {
+                    cellClientName.textContent = email.client_name;
+                } else {
+                    cellClientName.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellClientName);
+
+                // Add client ID
+                const cellClientId = document.createElement('td');
+                if (email.client_id) {
+                    cellClientId.textContent = email.client_id;
+                } else {
+                    cellClientId.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellClientId);
+
+                // Add user email
+                const cellUserEmail = document.createElement('td');
+                if (email.user_email) {
+                    cellUserEmail.textContent = email.user_email;
+                } else {
+                    cellUserEmail.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellUserEmail);
+
+                // Add user name
+                const cellUserName = document.createElement('td');
+                if (email.user_name) {
+                    cellUserName.textContent = email.user_name;
+                } else {
+                    cellUserName.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellUserName);
+
+                // Add user ID
+                const cellUserId = document.createElement('td');
+                if (email.user_id) {
+                    cellUserId.textContent = email.user_id;
+                } else {
+                    cellUserId.innerHTML = '<span class="empty-cell">N/A</span>';
+                }
+                row.appendChild(cellUserId);
+
+                // Add report link (placeholder since we don't have a report file for new emails)
+                const cellReport = document.createElement('td');
+                cellReport.innerHTML = '<span class="empty-cell">N/A</span>';
+                row.appendChild(cellReport);
+
+                // Add the row to the tbody
+                tbody.insertBefore(row, tbody.firstChild);
+            });
+
+            // Update row numbers
+            const allRows = Array.from(tbody.rows);
+            allRows.forEach((row, index) => {
+                row.cells[0].textContent = index + 1;
+            });
+
+            // Update the email count
+            const emailCount = document.getElementById('emailCount');
+            if (emailCount) {
+                emailCount.textContent = allRows.length;
+            }
+
+            // Apply current column visibility settings
+            for (let i = 1; i < 15; i++) {
+                const checkbox = document.getElementById('col' + i);
+                if (checkbox && !checkbox.checked) {
+                    toggleColumn(i, false);
+                }
+            }
+
+            // Re-sort the table using the current sort settings
+            sortTable(currentSortColumn, currentSortColumn === 3 ? 'date' : 'string');
+
+            // Re-apply filters
+            applyFilters();
+        }
+
+        // Initialize column visibility, sorting, and filters on page load
+        window.onload = function() {
+            // Only show these columns by default: Subject, Subject Template, Date, Description,
+            // Support Category, Company Name, Invoice ID, Invoice Number, Client Name, User Email, and Report
+
+            // Hide Company ID
+            toggleColumn(7, false);
+            // Hide Client ID
+            toggleColumn(11, false);
+            // Hide User Name
+            toggleColumn(13, false);
+            // Hide User ID
+            toggleColumn(14, false);
+
+            // Update checkboxes to match initial state
+            document.getElementById('col7').checked = false; // Company ID
+            document.getElementById('col11').checked = false; // Client ID
+            document.getElementById('col13').checked = false; // User Name
+            document.getElementById('col14').checked = false; // User ID
+
+            // Setup column filters
+            setupColumnFilters();
+
+            // Setup column reordering
+            setupColumnReordering();
+
+            // Sort the table by date in descending order by default
+            sortTable(3, 'date'); // Date is column index 3 (0-based)
+
+            // Add a class to indicate that sorting and filtering are initialized
+            document.body.classList.add('sorting-initialized');
+        };
+    </script>
+    <script src="table-sorter.js"></script>
+</head>
+<body>
+    <h1>Email Analysis Reports - Inbox/APWizard_Tickets</h1>
+    <p>Generated on 2025-05-13 13:58:24</p>
+    <p>Total emails analyzed: <span id="emailCount">79</span></p>
+    <button id="refreshButton" class="refresh-btn" onclick="refreshEmails()">Refresh</button>
+
+    <div class="dropdown">
+        <button class="btn" onclick="toggleColumns()">Show Columns</button>
+        <div class="dropdown-content" id="columnDropdown">
+            <div class="checkbox-item"><input type="checkbox" id="col1" checked onchange="toggleColumn(1, this.checked)"> <label for="col1">Subject</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col2" checked onchange="toggleColumn(2, this.checked)"> <label for="col2">Subject Template</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col3" checked onchange="toggleColumn(3, this.checked)"> <label for="col3">Date</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col4" checked onchange="toggleColumn(4, this.checked)"> <label for="col4">Description</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col5" checked onchange="toggleColumn(5, this.checked)"> <label for="col5">Support Category</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col6" checked onchange="toggleColumn(6, this.checked)"> <label for="col6">Company Name</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col7" onchange="toggleColumn(7, this.checked)"> <label for="col7">Company ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col8" checked onchange="toggleColumn(8, this.checked)"> <label for="col8">Invoice ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col9" checked onchange="toggleColumn(9, this.checked)"> <label for="col9">Invoice Number</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col10" checked onchange="toggleColumn(10, this.checked)"> <label for="col10">Client Name</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col11" onchange="toggleColumn(11, this.checked)"> <label for="col11">Client ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col12" checked onchange="toggleColumn(12, this.checked)"> <label for="col12">User Email</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col13" onchange="toggleColumn(13, this.checked)"> <label for="col13">User Name</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col14" onchange="toggleColumn(14, this.checked)"> <label for="col14">User ID</label></div>
+            <div class="checkbox-item"><input type="checkbox" id="col15" checked onchange="toggleColumn(15, this.checked)"> <label for="col15">Report</label></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <table id="emailTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Subject</th>
+                    <th>Subject Template</th>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Support Category</th>
+                    <th>Company Name</th>
+                    <th>Company ID</th>
+                    <th>Invoice ID</th>
+                    <th>Invoice Number</th>
+                    <th>Client Name</th>
+                    <th>Client ID</th>
+                    <th>User Email</th>
+                    <th>User Name</th>
+                    <th>User ID</th>
+                    <th>Report</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td>1</td>
+                    <td>[SUPPORT] [TaftElectric] System Performance Issues</td>
+                    <td>System Performance Issues</td>
+                    <td>2025-05-06 10:20:07</td>
+                    <td>GRANT SELECT ON LIC.LicenseHeader TO ApWizardRole; --30-APR-2025 Required for accessing License details Can you please help me with this message I received when accessing the AP Wizard. Thank you, Michelle Dunham - mdunham@taftelectric.com</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Taft Electric Company</td>
+                    <td>32a47d53-a52c-4c4b-b170-f10e904d1bb1</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/f1fe6d7e-ffaf-4391-ba83-7e5106d19f34" target="_blank">f1fe6d7e-ffaf-4391-ba83-7e5106d19f34</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>TaftElectric</td>
+                    <td>28e3011e-0a14-43ec-aa6c-f6aa74de6380</td>
+                    <td>mdunham@taftelectric.com</td>
+                    <td>Michelle Dunham</td>
+                    <td>f7588204-a42b-4ba8-9d75-74dd35877236</td>
+                    <td><a href="_SUPPORT_ _TaftElectric_ System Performance Issues_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>2</td>
+                    <td>[SUPPORT] [TaftElectric] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-12 10:46:59</td>
+                    <td>The system predicted the wrong vendor for this transaction. should be Resa service</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Taft Electric Company</td>
+                    <td>32a47d53-a52c-4c4b-b170-f10e904d1bb1</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/426a70bb-b083-494e-9621-8487b8dfb025" target="_blank">426a70bb-b083-494e-9621-8487b8dfb025</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>TaftElectric</td>
+                    <td>28e3011e-0a14-43ec-aa6c-f6aa74de6380</td>
+                    <td>shageatha@olsenconsulting.ca</td>
+                    <td>Shageatha Chundaralingam</td>
+                    <td>276930c9-d984-4f0f-81d7-169a381f650e</td>
+                    <td><a href="_SUPPORT_ _TaftElectric_ Incorrect Vendor Predicti_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>3</td>
+                    <td>[SUPPORT] [TaftElectric] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-09 12:06:58</td>
+                    <td>The system predicted the wrong vendor for this transaction. should be vendor #126926 - Synthesia limited</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Taft Electric Company</td>
+                    <td>32a47d53-a52c-4c4b-b170-f10e904d1bb1</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/09a105a1-cd1c-4d6a-a6d0-29d64e889c55" target="_blank">09a105a1-cd1c-4d6a-a6d0-29d64e889c55</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>TaftElectric</td>
+                    <td>28e3011e-0a14-43ec-aa6c-f6aa74de6380</td>
+                    <td>shageatha@olsenconsulting.ca</td>
+                    <td>Shageatha Chundaralingam</td>
+                    <td>276930c9-d984-4f0f-81d7-169a381f650e</td>
+                    <td><a href="_SUPPORT_ _TaftElectric_ Incorrect Vendor Predicti_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>4</td>
+                    <td>[SUPPORT] [TSU One, Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-06 06:34:45</td>
+                    <td>Not all invoice line items were correctly retrieved from this invoice - Shageatha</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Texas State Utilities</td>
+                    <td>d56c1b4d-2ca1-4c43-baab-0ec2d33e3d5a</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/fbc46eff-6f93-4631-bd22-b126abcdad4f" target="_blank">fbc46eff-6f93-4631-bd22-b126abcdad4f</a></td>
+                    <td>2740253006</td>
+                    <td>TSU One, Inc.</td>
+                    <td>c18f4f75-85c8-48c5-8ebb-66f416067fc3</td>
+                    <td>shageatha@olsenconsulting.ca</td>
+                    <td>Shageatha Chundaralingam</td>
+                    <td>276930c9-d984-4f0f-81d7-169a381f650e</td>
+                    <td><a href="_SUPPORT_ _TSU One_ Inc__ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>5</td>
+                    <td>[SUPPORT] [TSU One, Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-05 10:25:53</td>
+                    <td>Incorrect cost prediction</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Texas State Utilities</td>
+                    <td>d56c1b4d-2ca1-4c43-baab-0ec2d33e3d5a</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/38a49b98-2742-4a98-a36b-3d2c2e191055" target="_blank">38a49b98-2742-4a98-a36b-3d2c2e191055</a></td>
+                    <td>16359</td>
+                    <td>TSU One, Inc.</td>
+                    <td>c18f4f75-85c8-48c5-8ebb-66f416067fc3</td>
+                    <td>jon@olsenconsulting.ca</td>
+                    <td>Jon Olsen</td>
+                    <td>49afcd73-a52d-4880-82c3-26c5a401f4fd</td>
+                    <td><a href="_SUPPORT_ _TSU One_ Inc__ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>6</td>
+                    <td>[SUPPORT] [TSU One, Inc.] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-06 08:02:22</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Texas State Utilities</td>
+                    <td>d56c1b4d-2ca1-4c43-baab-0ec2d33e3d5a</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/56ec5fe0-f30d-4922-94e4-179837fa3bdb" target="_blank">56ec5fe0-f30d-4922-94e4-179837fa3bdb</a></td>
+                    <td>420</td>
+                    <td>TSU One, Inc.</td>
+                    <td>c18f4f75-85c8-48c5-8ebb-66f416067fc3</td>
+                    <td>shageatha@olsenconsulting.ca</td>
+                    <td>Shageatha Chundaralingam</td>
+                    <td>276930c9-d984-4f0f-81d7-169a381f650e</td>
+                    <td><a href="_SUPPORT_ _TSU One_ Inc__ Incorrect Vendor Predict_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>7</td>
+                    <td>[SUPPORT] [S.M. Hentges] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-06 11:30:07</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>S.M. Hentges</td>
+                    <td>518cafd3-f675-44a4-ac65-b8258e9ce101</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/95238021-dc99-4537-a43d-4e8edc5877a0" target="_blank">95238021-dc99-4537-a43d-4e8edc5877a0</a></td>
+                    <td>923368</td>
+                    <td>S.M. Hentges</td>
+                    <td>060d6c1d-6e98-4574-a4e2-deb0e3eee7a4</td>
+                    <td>rebecca.egstad@smhentges.com</td>
+                    <td>Rebecca Egstad</td>
+                    <td>727df5e2-6e4b-4411-aff5-6c163cca4f95</td>
+                    <td><a href="_SUPPORT_ _S_M_ Hentges_ Incorrect Vendor Predicti_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>8</td>
+                    <td>[SUPPORT] [NP Mechanical, Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 07:18:22</td>
+                    <td>Is there any way to set up recipients in the email templates? I sent my invoice discrepancies over to the same multiple people. Therefore, I have to copy and paste the same multiple people onto each email that I send out. Its inefficient and time consuming. Please advise</td>
+                    <td>Document Processing Failures</td>
+                    <td>NP Mechanical, Inc.</td>
+                    <td>f2674c2d-4f26-4b95-b3d5-6e565c9b0c84</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/3816d006-14c4-460f-83f9-749aa6c2537e" target="_blank">3816d006-14c4-460f-83f9-749aa6c2537e</a></td>
+                    <td>5353174</td>
+                    <td>NP Mechanical, Inc.</td>
+                    <td>f2674c2d-4f26-4b95-b3d5-6e565c9b0c84</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _NP Mechanical_ Inc__ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>9</td>
+                    <td>[SUPPORT] [Haskell Lemon] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-05-02 12:34:07</td>
+                    <td>Invoice and statement included</td>
+                    <td>Other</td>
+                    <td>Haskell Lemon</td>
+                    <td>5144db91-52e5-4987-9b8b-699aac492695</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/831618b4-27ed-4b55-b4af-e28c7cd5c1ad" target="_blank">831618b4-27ed-4b55-b4af-e28c7cd5c1ad</a></td>
+                    <td>1040908</td>
+                    <td>Haskell Lemon</td>
+                    <td>5144db91-52e5-4987-9b8b-699aac492695</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Haskell Lemon_ Error Uploading Document_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>10</td>
+                    <td>[SUPPORT] [Haskell Lemon] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-05-02 12:00:51</td>
+                    <td>Multiple unrelated documents uploaded</td>
+                    <td>Document Processing Failures</td>
+                    <td>Haskell Lemon</td>
+                    <td>5144db91-52e5-4987-9b8b-699aac492695</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/c26dea58-ebdc-49fc-9da6-3fc3c78ffc2c" target="_blank">c26dea58-ebdc-49fc-9da6-3fc3c78ffc2c</a></td>
+                    <td>050125</td>
+                    <td>Haskell Lemon</td>
+                    <td>5144db91-52e5-4987-9b8b-699aac492695</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Haskell Lemon_ Error Uploading Document_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>11</td>
+                    <td>[SUPPORT] [H&amp;M Mechanical Constructors, Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-01 10:51:46</td>
+                    <td>PO was in at the bottom of this invoice. Can this be predicted? It was 198.000004.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>H&M Mechanical Constructors, Inc.</td>
+                    <td>ecd31ce2-8778-4db7-89ee-ec4d11424269</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/6f03bedb-86aa-4bd0-9899-b8d2299c2196" target="_blank">6f03bedb-86aa-4bd0-9899-b8d2299c2196</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>H&M Mechanical Constructors, Inc.</td>
+                    <td>ecd31ce2-8778-4db7-89ee-ec4d11424269</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _H_amp_M Mechanical Constructors_ Inc__ _20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>12</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 12:48:47</td>
+                    <td>There is no discount for Linder but I keep getting this warning: Payment terms and predicted discount date mismatch: Found No date set, prediction: 12-May-2025</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/7f046236-c527-4363-b9b0-b662dfaff051" target="_blank">7f046236-c527-4363-b9b0-b662dfaff051</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>13</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 11:23:47</td>
+                    <td>All the Ferguson, vendor 1355, are giving an error about discount dates, but it's pulling the correct discount date. "Payment terms and predicted discount date mismatch: Found 11-May-2025, prediction: No date set" This just started today as far as I know.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/d91ad613-d20f-43dd-beac-fffd6a4c96fb" target="_blank">d91ad613-d20f-43dd-beac-fffd6a4c96fb</a></td>
+                    <td>0760110</td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>14</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-13 12:25:37</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/bcb32f9d-b563-4486-8247-4dd76856aa60" target="_blank">bcb32f9d-b563-4486-8247-4dd76856aa60</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Incorrect Ven_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>15</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-13 12:23:30</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/33f91e3e-46df-45e5-9bc8-269e3dac497d" target="_blank">33f91e3e-46df-45e5-9bc8-269e3dac497d</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Incorrect Ven_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>16</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-12 13:26:37</td>
+                    <td>The system predicted the wrong vendor for this transaction. Should Martin Marietta</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/709da3da-215b-4765-8061-ad6f386110f0" target="_blank">709da3da-215b-4765-8061-ad6f386110f0</a></td>
+                    <td>45724025</td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Incorrect Ven_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>17</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-09 11:49:42</td>
+                    <td>The system predicted the wrong vendor for this transaction. Should be Martin Marietta</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/e9aee721-dd41-483b-86d6-dd4fb6936c00" target="_blank">e9aee721-dd41-483b-86d6-dd4fb6936c00</a></td>
+                    <td>45652174</td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Incorrect Ven_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>18</td>
+                    <td>[SUPPORT] [Gulf Stream Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-08 12:40:36</td>
+                    <td>The system predicted the wrong vendor for this transaction. Predicted Concrete Pipe & Precast. Should be Martin Marietta.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/9754c53d-460f-4993-ba01-6f174ec5794f" target="_blank">9754c53d-460f-4993-ba01-6f174ec5794f</a></td>
+                    <td>45686092</td>
+                    <td>Gulf Stream Construction</td>
+                    <td>0fd6e31d-a629-4131-b7cb-76806c31e2de</td>
+                    <td>LWysocki@gulfstreamconstruction.com</td>
+                    <td>Laura Wysocki</td>
+                    <td>953d166f-86e8-4c62-8650-f4b20e295c11</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction_ Incorrect Ven_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>19</td>
+                    <td>[SUPPORT] [Gulf Stream Construction Co., Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-01 14:47:45</td>
+                    <td>Wrong job predicted</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/2502c0b0-8b79-4575-946e-7132b2f588a5" target="_blank">2502c0b0-8b79-4575-946e-7132b2f588a5</a></td>
+                    <td>178588</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction Co__ Inc__ Oth_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>20</td>
+                    <td>[SUPPORT] [Gulf Stream Construction Co., Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-01 14:36:12</td>
+                    <td>Predictive coding wrong</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/eb103fba-a4dc-4645-adb8-8b26aa1c59d9" target="_blank">eb103fba-a4dc-4645-adb8-8b26aa1c59d9</a></td>
+                    <td>45596511</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction Co__ Inc__ Oth_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>21</td>
+                    <td>[SUPPORT] [Gulf Stream Construction Co., Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-01 14:24:46</td>
+                    <td>All the United Rentals invoices are coming over with invoice type errors. This was not happening yesterday. They are all non-po invoices.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/e14680d8-538d-4bff-9b85-faf27d0fe523" target="_blank">e14680d8-538d-4bff-9b85-faf27d0fe523</a></td>
+                    <td>236874418</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction Co__ Inc__ Oth_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>22</td>
+                    <td>[SUPPORT] [Gulf Stream Construction Co., Inc.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-01 06:30:05</td>
+                    <td>SQL Permissions error</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/e2266810-9906-4871-985e-406a0def9aaf" target="_blank">e2266810-9906-4871-985e-406a0def9aaf</a></td>
+                    <td>2370</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction Co__ Inc__ Oth_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>23</td>
+                    <td>[SUPPORT] [Gulf Stream Construction Co., Inc.] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-02 13:30:25</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/4fd55e25-0ffb-4dd7-8c90-42dcc5b45e9a" target="_blank">4fd55e25-0ffb-4dd7-8c90-42dcc5b45e9a</a></td>
+                    <td>45636735</td>
+                    <td>Gulf Stream Construction Co., Inc.</td>
+                    <td>3e670134-1ba6-4585-b255-3b57db3d3564</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _Gulf Stream Construction Co__ Inc__ Inc_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>24</td>
+                    <td>[SUPPORT] [GBI] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-05 09:11:28</td>
+                    <td>The system predicted the wrong vendor for this transaction. The correct invoice number inclued the space before and after the /, but it predicted it as second image.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Great Basin Industrial</td>
+                    <td>8eb64061-09c3-450e-b1a3-18f111d7ee8d</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/f51e9890-3c51-49f2-bc30-c2fbdae85e94" target="_blank">f51e9890-3c51-49f2-bc30-c2fbdae85e94</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>GBI</td>
+                    <td>0eaf3108-39fe-412c-91c7-60cc38a5f576</td>
+                    <td>angiem@mygbi.com</td>
+                    <td>Angie M.</td>
+                    <td>c2fa5266-925a-4a87-9cc0-cd8d6ecb66a6</td>
+                    <td><a href="_SUPPORT_ _GBI_ Incorrect Vendor Prediction_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>25</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Unable to Submit Invoice</td>
+                    <td>Unable to Submit Invoice</td>
+                    <td>2025-05-08 07:43:26</td>
+                    <td>The invoice cannot be submitted due to an error or system issue.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Concrete & Materials Placement</td>
+                    <td>bbbffcd4-f6a0-48c3-b233-50e02a315da6</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/73864132-2d5e-4cd4-a3c6-b5caf0306f07" target="_blank">73864132-2d5e-4cd4-a3c6-b5caf0306f07</a></td>
+                    <td>6809507144491</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>marias@doggettconcrete.com</td>
+                    <td>Monika Arias</td>
+                    <td>93d89e30-6092-4947-a128-91fd56c403e4</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Unable t_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>26</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-07 12:44:41</td>
+                    <td>this is an invoice and APW is entering it as a credit?</td>
+                    <td>Other</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>65b0fead-e3bb-464f-8667-d48283a3ddd5</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/a798e310-0e74-4773-aa2c-2d9937f85869" target="_blank">a798e310-0e74-4773-aa2c-2d9937f85869</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>cponce@doggettconcrete.com</td>
+                    <td>Carmen Ponce</td>
+                    <td>d4554ac0-04db-4ff4-b07a-4f79b4667619</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>27</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-07 08:26:34</td>
+                    <td>Other issues requiring support assistance.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Doggett Residential</td>
+                    <td>f9d9dd69-83c9-4d15-a3c9-75872ce0a4a2</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/dba09eac-9785-4227-a250-9b9ceda46a03" target="_blank">dba09eac-9785-4227-a250-9b9ceda46a03</a></td>
+                    <td>597048</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>marias@doggettconcrete.com</td>
+                    <td>Monika Arias</td>
+                    <td>93d89e30-6092-4947-a128-91fd56c403e4</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>28</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-07 08:21:07</td>
+                    <td>sales tax prediction is only showing local tax</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>65b0fead-e3bb-464f-8667-d48283a3ddd5</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/39bddc30-81a0-4275-bdc7-49a0f8faf1be" target="_blank">39bddc30-81a0-4275-bdc7-49a0f8faf1be</a></td>
+                    <td>97315</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>cponce@doggettconcrete.com</td>
+                    <td>Carmen Ponce</td>
+                    <td>d4554ac0-04db-4ff4-b07a-4f79b4667619</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>29</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-07 08:06:54</td>
+                    <td>sales tax for this job 1385 should be orange county - this invoice was predicting chatham county</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>65b0fead-e3bb-464f-8667-d48283a3ddd5</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/b9d85737-bccb-4b80-9571-0be4fcf62af5" target="_blank">b9d85737-bccb-4b80-9571-0be4fcf62af5</a></td>
+                    <td>92179291</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>cponce@doggettconcrete.com</td>
+                    <td>Carmen Ponce</td>
+                    <td>d4554ac0-04db-4ff4-b07a-4f79b4667619</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>30</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-07 07:51:30</td>
+                    <td>this invoice did not attach in vista, not sure why</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>65b0fead-e3bb-464f-8667-d48283a3ddd5</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/c6cdfd2d-038b-43fa-b0db-d49319f8b9d8" target="_blank">c6cdfd2d-038b-43fa-b0db-d49319f8b9d8</a></td>
+                    <td>50031179589</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>klahoz@doggettconcrete.com</td>
+                    <td>Kelly LaHoz</td>
+                    <td>9e5a5457-b9ab-43cf-a65b-b80b3a5ce4c1</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>31</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-07 09:20:20</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Moisture Loc</td>
+                    <td>3d7c286d-151e-492c-8b45-26baad570fb8</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/9f8c14c7-015e-42ac-888b-6371ce3bbe87" target="_blank">9f8c14c7-015e-42ac-888b-6371ce3bbe87</a></td>
+                    <td>996306</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>rbaker@moistureloc.com</td>
+                    <td>Ryann Baker</td>
+                    <td>8a7b0c28-6916-4cd3-bd5e-baf8af0315f0</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Incorrec_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>32</td>
+                    <td>[SUPPORT] [Doggett Concrete Construction] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-07 07:29:17</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>65b0fead-e3bb-464f-8667-d48283a3ddd5</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/e871981d-a25c-47ba-aafe-547a6d1e053f" target="_blank">e871981d-a25c-47ba-aafe-547a6d1e053f</a></td>
+                    <td>50010130</td>
+                    <td>Doggett Concrete Construction</td>
+                    <td>d806c56b-9c94-4bca-a0c8-1cc1e08de512</td>
+                    <td>cponce@doggettconcrete.com</td>
+                    <td>Carmen Ponce</td>
+                    <td>d4554ac0-04db-4ff4-b07a-4f79b4667619</td>
+                    <td><a href="_SUPPORT_ _Doggett Concrete Construction_ Incorrec_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>33</td>
+                    <td>[SUPPORT] [BluSky] Unexpected Error</td>
+                    <td>Unexpected Error</td>
+                    <td>2025-05-08 07:01:35</td>
+                    <td>A system error occurred that is preventing normal operation.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/85b8175f-efb5-4a38-8b8e-83a8b494e9ec" target="_blank">85b8175f-efb5-4a38-8b8e-83a8b494e9ec</a></td>
+                    <td>5380982</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>jill.agostino@goblusky.com</td>
+                    <td>Jill Agostino</td>
+                    <td>7e450ad6-7bc4-4e6f-bd19-e824ba9a1dfe</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Unexpected Error_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>34</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-13 08:58:54</td>
+                    <td>Invoice is missing the - (dash) and it is picking up ACA as tax. ACA should not be picked up as sales tax.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/11f08d20-0c5c-4aa1-9bb5-72fb5a681021" target="_blank">11f08d20-0c5c-4aa1-9bb5-72fb5a681021</a></td>
+                    <td>341442766</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>35</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-13 07:56:24</td>
+                    <td>email loaded instead of invoice</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/3d3af682-10f9-45a9-8b69-38ede6439c62" target="_blank">3d3af682-10f9-45a9-8b69-38ede6439c62</a></td>
+                    <td>034</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>36</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-13 06:17:42</td>
+                    <td>WIZARD IS READING THE WORK ORDER NOT THE INVOICE ON PAGE 2</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/50bbcac4-6d8a-49a7-84c6-bf54eb4140f6" target="_blank">50bbcac4-6d8a-49a7-84c6-bf54eb4140f6</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>37</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-12 08:41:43</td>
+                    <td>Invoice number is incorrect - it's missing the -</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/96f11399-3208-40c8-99ec-fcbdf1892c90" target="_blank">96f11399-3208-40c8-99ec-fcbdf1892c90</a></td>
+                    <td>341442753</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>38</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-12 07:33:30</td>
+                    <td>Not picking up job number from invoice</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/bdaece8c-9282-4b3c-a3f9-e0f198e57993" target="_blank">bdaece8c-9282-4b3c-a3f9-e0f198e57993</a></td>
+                    <td>700</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>39</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-08 14:04:52</td>
+                    <td>work order loaded as invoice</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/af010eb0-bcd8-42f0-81b9-4fe42220f037" target="_blank">af010eb0-bcd8-42f0-81b9-4fe42220f037</a></td>
+                    <td>56408</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>40</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-08 13:56:31</td>
+                    <td>invoice did not load up, the work order loaded as the invoice</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/0f572fef-c17e-44b5-a2d1-f087a037cdb3" target="_blank">0f572fef-c17e-44b5-a2d1-f087a037cdb3</a></td>
+                    <td>118412</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>41</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-08 13:39:20</td>
+                    <td>Other issues requiring support assistance. this is not and invoices to be processed, this is email body.</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/fc4916ec-5d78-467a-acbd-a2248779863d" target="_blank">fc4916ec-5d78-467a-acbd-a2248779863d</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Robert.Lemon@goblusky.com</td>
+                    <td>Robert Lemon</td>
+                    <td>bafd5d08-0f6f-4d08-ad5e-b0c4283d21d2</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>42</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-08 09:54:26</td>
+                    <td>Didnt pick up the date for this invoice</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/0d2134bc-11ae-4da8-8b3d-36e4abfc4dfd" target="_blank">0d2134bc-11ae-4da8-8b3d-36e4abfc4dfd</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>43</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-06 08:58:05</td>
+                    <td>This vendor is not picking up any Job #, which state on the invoice. This vendor occasionally has a SL Subcontract 7 set up, but most often it is coded to a job 1</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/05df5a34-1e6b-4057-8af9-6624b315ccd7" target="_blank">05df5a34-1e6b-4057-8af9-6624b315ccd7</a></td>
+                    <td>7291</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>44</td>
+                    <td>[SUPPORT] [BluSky] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-05 09:24:39</td>
+                    <td>Due Date is blank.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/589be6d7-19cf-48ce-88d9-885a36af587b" target="_blank">589be6d7-19cf-48ce-88d9-885a36af587b</a></td>
+                    <td>273</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Other_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>45</td>
+                    <td>[SUPPORT] [BluSky] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-13 08:47:17</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/b75dbfe0-4f0f-4348-81ad-acfaab025c6d" target="_blank">b75dbfe0-4f0f-4348-81ad-acfaab025c6d</a></td>
+                    <td>61</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Incorrect Vendor Prediction_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>46</td>
+                    <td>[SUPPORT] [BluSky] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-13 06:13:59</td>
+                    <td>SHOULD BE VENDOR 18000 BUT THE WIZARD SELECTED 95810</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/20ae378d-3287-4528-a540-0bbddedab40f" target="_blank">20ae378d-3287-4528-a540-0bbddedab40f</a></td>
+                    <td>0374</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Incorrect Vendor Prediction_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>47</td>
+                    <td>[SUPPORT] [BluSky] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-13 06:09:28</td>
+                    <td>SHOULD BE VENDOR 10417 BUT THE WIZARD SELECTED 36568</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/93f319da-cf92-491c-aa41-8ed812fa203c" target="_blank">93f319da-cf92-491c-aa41-8ed812fa203c</a></td>
+                    <td>17009138680525</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Incorrect Vendor Prediction_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>48</td>
+                    <td>[SUPPORT] [BluSky] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-12 13:10:41</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/5882f668-110c-4257-b193-3a5d6d52a76e" target="_blank">5882f668-110c-4257-b193-3a5d6d52a76e</a></td>
+                    <td>62</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>Tracy.Eley@goblusky.com</td>
+                    <td>Tracy Eley</td>
+                    <td>b97c35a4-4e5f-4932-ba4f-58e43c44c61e</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Incorrect Vendor Prediction_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>49</td>
+                    <td>[SUPPORT] [BluSky] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-08 07:23:36</td>
+                    <td>The system predicted the wrong vendor for this transaction. And it's plugging a Job # that has nothing to do with the invoice</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/a4b3ce0c-a71f-4b01-8c33-362d1324a420" target="_blank">a4b3ce0c-a71f-4b01-8c33-362d1324a420</a></td>
+                    <td>5381016</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>jill.agostino@goblusky.com</td>
+                    <td>Jill Agostino</td>
+                    <td>7e450ad6-7bc4-4e6f-bd19-e824ba9a1dfe</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Incorrect Vendor Prediction_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>50</td>
+                    <td>[SUPPORT] [BluSky] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-05-12 09:10:07</td>
+                    <td>email loaded as invoice</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/236eaac2-a714-4282-a719-dca101ee4fdf" target="_blank">236eaac2-a714-4282-a719-dca101ee4fdf</a></td>
+                    <td>2505</td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Error Uploading Documents_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>51</td>
+                    <td>[SUPPORT] [BluSky] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-05-12 08:33:01</td>
+                    <td>the work order loaded as an invoice</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/2ec31800-c9cf-4645-9510-d1a2608235fb" target="_blank">2ec31800-c9cf-4645-9510-d1a2608235fb</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky</td>
+                    <td>7cebab3c-f1e8-403f-9681-f23e23a28267</td>
+                    <td>deb.nihtila@goblusky.com</td>
+                    <td>Debra Nihtila</td>
+                    <td>8a304b5c-9b03-4ea3-b769-37ad6411baf8</td>
+                    <td><a href="_SUPPORT_ _BluSky_ Error Uploading Documents_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>52</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 13:33:42</td>
+                    <td>Wizard selected a hard closed job, but Vista does not accept hard closed jobs</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/3aebaa78-1e1f-4a11-aa23-2f9ee2478bcd" target="_blank">3aebaa78-1e1f-4a11-aa23-2f9ee2478bcd</a></td>
+                    <td>01695179810525</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>53</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 10:37:15</td>
+                    <td>Changed the address using override in AP Wizard, but it did not keep the changed/override address when it was sent to Vista</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/a0be2bb6-a954-463f-88f2-d7a773bdddea" target="_blank">a0be2bb6-a954-463f-88f2-d7a773bdddea</a></td>
+                    <td>32139</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>54</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 09:15:58</td>
+                    <td>the AP Invoice Task Description field does not have the invoice Account #. I pressed the Update Description button but the Account number on the invoice did not populate.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/95b60e3a-4bfc-48a0-9ae6-e9e64ebdb1e0" target="_blank">95b60e3a-4bfc-48a0-9ae6-e9e64ebdb1e0</a></td>
+                    <td>62019113950525</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>55</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 09:03:09</td>
+                    <td>the account number on the invoice (highlighted) does not populate in the Wizard Description field, I have tried the Update Descriptions button but it does not select the invoice Account #... Additionally, I am not able to copy/paste any information from the invoice.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/ffd9e6af-b5d1-4031-83e5-4392a70ab334" target="_blank">ffd9e6af-b5d1-4031-83e5-4392a70ab334</a></td>
+                    <td>15904138680525</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>56</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 08:14:05</td>
+                    <td>Other issues requiring support assistance. Picking up ACA as Tax. ACA should not be on sales tax line</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/08c78b1d-0cac-46d7-91c7-9bedaa6daa9a" target="_blank">08c78b1d-0cac-46d7-91c7-9bedaa6daa9a</a></td>
+                    <td>341</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>57</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-04-30 19:17:40</td>
+                    <td>Other issues requiring support assistance. Job number listed on the invoice is not valid so the Wizard selected a Hard Closed job number however the Wizard will not allow the entry to move to Vista with a hard closed job. why would the Wizard select a hard closed job. When searching for a job number in Vista using PM Projects, Vista will not display a hard closed job number, so why is the Wizard displaying hard closed job numbers? This is causing the Wizard to select hard closed job numbers when an invoice has a job number that is not valid.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/887ce254-3cf6-453d-a9e9-245329ae2677" target="_blank">887ce254-3cf6-453d-a9e9-245329ae2677</a></td>
+                    <td>2504</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>58</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-04-30 13:52:37</td>
+                    <td>Other issues requiring support assistance. Task created from Email Body incorrect, all attached already processed through wizard.</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/9ffa6479-7f6c-4750-a20f-e79c93c5b932" target="_blank">9ffa6479-7f6c-4750-a20f-e79c93c5b932</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>59</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-04-30 13:20:48</td>
+                    <td>Other issues requiring support assistance. Created many line items, when not needed.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/f8192e5d-12dd-454e-85cb-91928fcbddb9" target="_blank">f8192e5d-12dd-454e-85cb-91928fcbddb9</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>60</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-02 13:42:58</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/43dc6c4d-6cf2-443a-851c-6e9b6ca636f7" target="_blank">43dc6c4d-6cf2-443a-851c-6e9b6ca636f7</a></td>
+                    <td>37</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ In_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>61</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-02 13:23:22</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/6b50eb1d-783c-4371-bfb8-9dcc2afbc461" target="_blank">6b50eb1d-783c-4371-bfb8-9dcc2afbc461</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ In_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>62</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-02 13:21:07</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/3d1cdb72-2371-461a-bd2b-992c481b352e" target="_blank">3d1cdb72-2371-461a-bd2b-992c481b352e</a></td>
+                    <td>0000367</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ In_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>63</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Incorrect Vendor Prediction</td>
+                    <td>Incorrect Vendor Prediction</td>
+                    <td>2025-05-02 10:07:28</td>
+                    <td>The system predicted the wrong vendor for this transaction.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/2ea72c6d-73b6-4531-9fee-fad60baf2eb4" target="_blank">2ea72c6d-73b6-4531-9fee-fad60baf2eb4</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ In_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>64</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-05-01 14:01:17</td>
+                    <td>There was an issue uploading supporting documents for an invoice. the email loaded as the "invoice"</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/eeda3d2c-7b5a-44d5-b999-2099b03c113b" target="_blank">eeda3d2c-7b5a-44d5-b999-2099b03c113b</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Er_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>65</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-04-30 10:25:16</td>
+                    <td>There was an issue uploading supporting documents for an invoice. email uploaded as the "invoice"</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/3d3af682-10f9-45a9-8b69-38ede6439c62" target="_blank">3d3af682-10f9-45a9-8b69-38ede6439c62</a></td>
+                    <td>034</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Er_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>66</td>
+                    <td>[SUPPORT] [BluSky Restoration Contractors, LLC] Error Uploading Documents</td>
+                    <td>Error Uploading Documents</td>
+                    <td>2025-04-30 09:43:05</td>
+                    <td>There was an issue uploading supporting documents for an invoice. The email body came up as the "invoice"</td>
+                    <td>Document Processing Failures</td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/eeda3d2c-7b5a-44d5-b999-2099b03c113b" target="_blank">eeda3d2c-7b5a-44d5-b999-2099b03c113b</a></td>
+                    <td><span class="empty-cell">N/A</span></td>
+                    <td>BluSky Restoration Contractors, LLC</td>
+                    <td>0c4ccc2b-2968-4c96-b62f-475068dfc97f</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _BluSky Restoration Contractors_ LLC_ Er_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>67</td>
+                    <td>[SUPPORT] [Ben Hur Construction Co.] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-12 14:04:56</td>
+                    <td>Incorrect total predicted, work in place amount should be retrieved $81,465</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Ben Hur Construction Co.</td>
+                    <td>9aa5626a-802a-4fd5-a4f6-91a2d2b76305</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/2a2ed24b-b53a-4d1a-88ec-68de4d896496" target="_blank">2a2ed24b-b53a-4d1a-88ec-68de4d896496</a></td>
+                    <td>8</td>
+                    <td>Ben Hur Construction Co.</td>
+                    <td>2d092d14-c4f1-41dd-b9fa-09ea9b80e26b</td>
+                    <td>shageatha@olsenconsulting.ca</td>
+                    <td>Shageatha Chundaralingam</td>
+                    <td>276930c9-d984-4f0f-81d7-169a381f650e</td>
+                    <td><a href="_SUPPORT_ _Ben Hur Construction Co__ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>68</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-13 12:52:20</td>
+                    <td>Other issues requiring support assistance: Part# and description and populating as two different lines. Freight is also duplicated.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Comtel Systems Technology</td>
+                    <td>e50b41f0-34a4-4433-89d9-d25cc51fcca4</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/0be410e7-2fb5-40c4-8a8a-770bcf21312c" target="_blank">0be410e7-2fb5-40c4-8a8a-770bcf21312c</a></td>
+                    <td>988555</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>69</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-13 12:51:06</td>
+                    <td>Other issues requiring support assistance: PO items are duplicated and do not match invoice or PO.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Comtel Systems Technology</td>
+                    <td>e50b41f0-34a4-4433-89d9-d25cc51fcca4</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/220a3403-e6b5-4bfc-aed8-9659343b0292" target="_blank">220a3403-e6b5-4bfc-aed8-9659343b0292</a></td>
+                    <td>988562</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>70</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-13 12:48:40</td>
+                    <td>Other issues requiring support assistance: none of these lines match</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Comtel Systems Technology</td>
+                    <td>e50b41f0-34a4-4433-89d9-d25cc51fcca4</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/2dd4dfd4-4900-4623-bc5e-0c30ec063a99" target="_blank">2dd4dfd4-4900-4623-bc5e-0c30ec063a99</a></td>
+                    <td>988573</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>71</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-12 12:01:58</td>
+                    <td>Other issues requiring support assistance. It picked up the Shipping and Handling as Tax.</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/7a4b1868-86ad-4aa2-9107-3f89c885d856" target="_blank">7a4b1868-86ad-4aa2-9107-3f89c885d856</a></td>
+                    <td>12055</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>72</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 16:34:01</td>
+                    <td>Other issues requiring support assistance. Why is there a misc amount added to this total</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/11d317af-d8f6-476a-ac27-a02b045bed0e" target="_blank">11d317af-d8f6-476a-ac27-a02b045bed0e</a></td>
+                    <td>989982</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>73</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 15:10:01</td>
+                    <td>Other issues requiring support assistance. Why can't I change EA to LS</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/a9336351-3017-4fb1-8523-143ef728679f" target="_blank">a9336351-3017-4fb1-8523-143ef728679f</a></td>
+                    <td>090839</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>74</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 11:34:01</td>
+                    <td>We are unsure why we are getting a warning that payment terms and predicted date mis match, when they do match and the terms on the invoice are 1% 20Days Net 30</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/fd7f06fc-96bb-44cc-a48f-ca9495f42cca" target="_blank">fd7f06fc-96bb-44cc-a48f-ca9495f42cca</a></td>
+                    <td>990415</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>sbloom@beaconcom.com</td>
+                    <td>Shana F. Bloom</td>
+                    <td>e49d8345-4559-4c09-b14f-ca0e6b4c8133</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>75</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 11:15:42</td>
+                    <td>Other issues requiring support assistance. Quantity and unit cost did not populate correctly</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/eb117791-4c58-4d7c-8031-2663294617a7" target="_blank">eb117791-4c58-4d7c-8031-2663294617a7</a></td>
+                    <td>990299</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>76</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 10:41:58</td>
+                    <td>Other issues requiring support assistance. All lines duplicated, does not match invoice or PO</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/38f80db7-3dc6-41ba-9cbf-7113dba7e5a1" target="_blank">38f80db7-3dc6-41ba-9cbf-7113dba7e5a1</a></td>
+                    <td>988500</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>77</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-09 10:03:10</td>
+                    <td>Other issues requiring support assistance. Error about discount date</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/ae5843f7-4586-4ad2-b37c-598d00661be3" target="_blank">ae5843f7-4586-4ad2-b37c-598d00661be3</a></td>
+                    <td>988571</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>rparadise@beaconcom.com</td>
+                    <td>Rachel Paradise</td>
+                    <td>1e635a8b-a7a6-4b47-9b48-bfcbab3cccc0</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Other_20250513_135823.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>78</td>
+                    <td>[SUPPORT] [Beacon Communications, LLC] Integration Issue with ERP/Accounting System</td>
+                    <td>Integration Issue with ERP/Accounting System</td>
+                    <td>2025-05-05 13:55:38</td>
+                    <td>Data is not syncing correctly between AP Wizard and the ERP system. We had three issues submitted in not ready status and we are not sure why. I went into Vista and deleted and added the review and they went to ready status. When you hit the change status button. We get a popup message that unexpected software error was caught.</td>
+                    <td>System Bugs & Integration Issues</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>a6351c19-4d01-4d45-b52b-32afcb81ea7f</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/d331d46d-c7b8-480c-9d8b-4406cf2041be" target="_blank">d331d46d-c7b8-480c-9d8b-4406cf2041be</a></td>
+                    <td>988377</td>
+                    <td>Beacon Communications, LLC</td>
+                    <td>cb2482b6-e0cf-4fc2-875c-296fec451fc2</td>
+                    <td>sbloom@beaconcom.com</td>
+                    <td>Shana F. Bloom</td>
+                    <td>e49d8345-4559-4c09-b14f-ca0e6b4c8133</td>
+                    <td><a href="_SUPPORT_ _Beacon Communications_ LLC_ Integration_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+                <tr>
+                    <td>79</td>
+                    <td>[SUPPORT] [ Concrete &amp; Materials Placement] Other</td>
+                    <td>Other</td>
+                    <td>2025-05-02 06:56:50</td>
+                    <td>Is there a way after month end the invoices regardless of the date can go in the new month instead of us having to change it</td>
+                    <td>AI Model Prediction & Extraction Issues</td>
+                    <td>Concrete & Materials Placement</td>
+                    <td>bbbffcd4-f6a0-48c3-b233-50e02a315da6</td>
+                    <td><a href="https://platform.apwizard.ai/ap-task/8edaf70c-0370-485f-bffd-6ebd6970b30c" target="_blank">8edaf70c-0370-485f-bffd-6ebd6970b30c</a></td>
+                    <td>255284</td>
+                    <td>Concrete & Materials Placement</td>
+                    <td>bbbffcd4-f6a0-48c3-b233-50e02a315da6</td>
+                    <td>noreply@apwizard.ai</td>
+                    <td>Noreply</td>
+                    <td>0c4b4a54</td>
+                    <td><a href="_SUPPORT_ _ Concrete _amp_ Materials Placement_ Ot_20250513_135824.html" target="_blank">View Report</a></td>
+                </tr>
+
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
