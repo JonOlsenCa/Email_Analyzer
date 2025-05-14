@@ -16,6 +16,14 @@ from outlook_connector import OutlookConnector
 from analyzer import Analyzer
 from utils import setup_logging
 
+
+# Import normalizers
+from data_normalizer import CompanyNormalizer, CategoryNormalizer, TemplateNormalizer
+
+# Initialize normalizers
+company_normalizer = CompanyNormalizer()
+category_normalizer = CategoryNormalizer()
+template_normalizer = TemplateNormalizer()
 # Configuration
 EMAIL_ACCOUNT = "jon@olsenconsulting.ca"
 FOLDER_PATH = "Inbox/APWizard_Tickets"
@@ -487,12 +495,36 @@ def create_html_index(output_dir, emails, folder_path):
             if email_data and email_data.date:
                 try:
                     date_str = email_data.date.strftime('%Y-%m-%d %H:%M:%S')
-                except:
+                
+            # Update dashboard with normalized data
+            try:
+                from update_dashboard import update_dashboard
+                update_dashboard()
+                logger.info("Updated dashboard with normalized data")
+            except ImportError:
+                logger.warning("Could not import update_dashboard module")except:
                     date_str = str(email_data.date)
 
             # Get structured data if available
             subject_template = ""
+            # Extract and normalize support category
+            support_category = 'Other'  # Default value
+            # Try to determine category from description or other fields
+            if 'description' in locals() and description:
+                # Simple categorization based on keywords
+                if any(kw in description.lower() for kw in ['ai', 'model', 'prediction', 'extraction']):
+                    support_category = 'AI Model Prediction & Extraction Issues'
+                elif any(kw in description.lower() for kw in ['document', 'processing', 'upload']):
+                    support_category = 'Document Processing Failures'
+                elif any(kw in description.lower() for kw in ['system', 'bug', 'integration']):
+                    support_category = 'System Bugs & Integration Issues'
+                else:
+                    support_category = 'Other'
+            # Normalize subject template
+            subject_template = template_normalizer.normalize(subject_template) if subject_template else 'Other'
             company_name = ""
+            # Normalize company name
+            company_name = company_normalizer.normalize(company_name) if company_name else 'Unknown Company'
             company_id = ""
             invoice_id = ""
             invoice_number = ""
@@ -639,7 +671,14 @@ def main():
 
         logger.info(f"Analysis complete. {len(new_emails)} new emails processed.")
 
-    except Exception as e:
+    
+            # Update dashboard with normalized data
+            try:
+                from update_dashboard import update_dashboard
+                update_dashboard()
+                logger.info("Updated dashboard with normalized data")
+            except ImportError:
+                logger.warning("Could not import update_dashboard module")except Exception as e:
         logger.error(f"Error: {str(e)}")
         sys.exit(1)
 

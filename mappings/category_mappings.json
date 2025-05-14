@@ -1,0 +1,27 @@
+{
+  "mappings": {
+    "AI Model Issues": "AI Model Prediction & Extraction Issues",
+    "AI Model Prediction Issues": "AI Model Prediction & Extraction Issues",
+    "AI Extraction Issues": "AI Model Prediction & Extraction Issues",
+    "Extraction Issues": "AI Model Prediction & Extraction Issues",
+    "Prediction Issues": "AI Model Prediction & Extraction Issues",
+    "Document Processing Issue": "Document Processing Failures",
+    "Document Processing Error": "Document Processing Failures",
+    "Document Failure": "Document Processing Failures",
+    "Processing Failure": "Document Processing Failures",
+    "System Bug": "System Bugs & Integration Issues",
+    "Integration Issue": "System Bugs & Integration Issues",
+    "System Integration Issue": "System Bugs & Integration Issues",
+    "Bug": "System Bugs & Integration Issues",
+    "Other Issue": "Other",
+    "Unknown": "Other",
+    "N/A": "Other"
+  },
+  "standardized_entities": [
+    "AI Model Prediction & Extraction Issues",
+    "Document Processing Failures",
+    "Other",
+    "System Bugs & Integration Issues",
+    "Integration Issue with ERP/Accounting System"
+  ]
+}

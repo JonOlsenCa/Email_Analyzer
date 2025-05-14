@@ -16,6 +16,14 @@ from analyzer import Analyzer
 from utils import setup_logging
 from support_categories import categorize_description
 
+
+# Import normalizers
+from data_normalizer import CompanyNormalizer, CategoryNormalizer, TemplateNormalizer
+
+# Initialize normalizers
+company_normalizer = CompanyNormalizer()
+category_normalizer = CategoryNormalizer()
+template_normalizer = TemplateNormalizer()
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -150,7 +158,14 @@ def main():
 
         logger.info(f"Analysis complete. Reports saved to: {args.output_dir}")
 
-    except Exception as e:
+    
+            # Update dashboard with normalized data
+            try:
+                from update_dashboard import update_dashboard
+                update_dashboard()
+                logger.info("Updated dashboard with normalized data")
+            except ImportError:
+                logger.warning("Could not import update_dashboard module")except Exception as e:
         logger.error(f"Error: {str(e)}")
         sys.exit(1)
 
@@ -198,7 +213,14 @@ def create_html_index(output_dir, emails, folder_path):
                         if not latest_timestamp or timestamp_part > latest_timestamp:
                             latest_timestamp = timestamp_part
                             latest_report = filename
-                    except:
+                    
+            # Update dashboard with normalized data
+            try:
+                from update_dashboard import update_dashboard
+                update_dashboard()
+                logger.info("Updated dashboard with normalized data")
+            except ImportError:
+                logger.warning("Could not import update_dashboard module")except:
                         # If we can't parse the timestamp, just use this file if we don't have one yet
                         if not latest_report:
                             latest_report = filename
@@ -1208,8 +1230,25 @@ def create_html_index(output_dir, emails, folder_path):
 
             # Get structured data if available
             subject_template = ""
+            # Extract and normalize support category
+            support_category = 'Other'  # Default value
+            # Try to determine category from description or other fields
+            if 'description' in locals() and description:
+                # Simple categorization based on keywords
+                if any(kw in description.lower() for kw in ['ai', 'model', 'prediction', 'extraction']):
+                    support_category = 'AI Model Prediction & Extraction Issues'
+                elif any(kw in description.lower() for kw in ['document', 'processing', 'upload']):
+                    support_category = 'Document Processing Failures'
+                elif any(kw in description.lower() for kw in ['system', 'bug', 'integration']):
+                    support_category = 'System Bugs & Integration Issues'
+                else:
+                    support_category = 'Other'
+            # Normalize subject template
+            subject_template = template_normalizer.normalize(subject_template) if subject_template else 'Other'
             description = ""
             company_name = ""
+            # Normalize company name
+            company_name = company_normalizer.normalize(company_name) if company_name else 'Unknown Company'
             company_id = ""
             invoice_id = ""
             invoice_number = ""
@@ -1228,10 +1267,27 @@ def create_html_index(output_dir, emails, folder_path):
                 # Ensure all attributes exist with default values if not present
                 if not hasattr(email_data, 'subject_template'):
                     email_data.subject_template = ""
+            # Extract and normalize support category
+            support_category = 'Other'  # Default value
+            # Try to determine category from description or other fields
+            if 'description' in locals() and description:
+                # Simple categorization based on keywords
+                if any(kw in description.lower() for kw in ['ai', 'model', 'prediction', 'extraction']):
+                    support_category = 'AI Model Prediction & Extraction Issues'
+                elif any(kw in description.lower() for kw in ['document', 'processing', 'upload']):
+                    support_category = 'Document Processing Failures'
+                elif any(kw in description.lower() for kw in ['system', 'bug', 'integration']):
+                    support_category = 'System Bugs & Integration Issues'
+                else:
+                    support_category = 'Other'
+            # Normalize subject template
+            subject_template = template_normalizer.normalize(subject_template) if subject_template else 'Other'
                 if not hasattr(email_data, 'description'):
                     email_data.description = ""
                 if not hasattr(email_data, 'company_name'):
                     email_data.company_name = ""
+            # Normalize company name
+            company_name = company_normalizer.normalize(company_name) if company_name else 'Unknown Company'
                 if not hasattr(email_data, 'company_id'):
                     email_data.company_id = ""
                 if not hasattr(email_data, 'invoice_id'):

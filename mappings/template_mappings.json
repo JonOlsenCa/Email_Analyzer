@@ -1,0 +1,33 @@
+{
+  "mappings": {
+    "Vendor Prediction Error": "Incorrect Vendor Prediction",
+    "Wrong Vendor": "Incorrect Vendor Prediction",
+    "Vendor Error": "Incorrect Vendor Prediction",
+    "System Slow": "System Performance Issues",
+    "Performance Issue": "System Performance Issues",
+    "Slow System": "System Performance Issues",
+    "Upload Error": "Error Uploading Documents",
+    "Document Upload Error": "Error Uploading Documents",
+    "Cannot Upload": "Error Uploading Documents",
+    "ERP Integration Issue": "Integration Issue with ERP/Accounting System",
+    "Accounting System Integration": "Integration Issue with ERP/Accounting System",
+    "ERP Issue": "Integration Issue with ERP/Accounting System",
+    "Cannot Submit Invoice": "Unable to Submit Invoice",
+    "Invoice Submission Error": "Unable to Submit Invoice",
+    "Invoice Error": "Unable to Submit Invoice",
+    "System Error": "Unexpected Error",
+    "Unknown Error": "Unexpected Error",
+    "Error": "Unexpected Error",
+    "N/A": "Other",
+    "Unknown": "Other"
+  },
+  "standardized_entities": [
+    "Unable to Submit Invoice",
+    "Error Uploading Documents",
+    "Unexpected Error",
+    "Incorrect Vendor Prediction",
+    "System Performance Issues",
+    "Other",
+    "Integration Issue with ERP/Accounting System"
+  ]
+}
