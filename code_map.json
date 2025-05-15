@@ -1,0 +1,166 @@
+{
+  "files": [
+    {
+      "filename": "email_analyzer.py",
+      "purpose": "Main entry point for the command-line email analysis tool. Parses command-line arguments and orchestrates the email parsing and analysis process.",
+      "exports": ["main", "parse_arguments"],
+      "imports": ["email_parser.EmailParser", "analyzer.Analyzer", "utils.setup_logging", "utils.get_version"],
+      "key_data_structures": ["VERSION"],
+      "used_by": [],
+      "calls_out_to": ["email_parser.py", "analyzer.py", "utils.py"]
+    },
+    {
+      "filename": "email_parser.py",
+      "purpose": "Provides functionality to parse email files in various formats and extract relevant information for analysis.",
+      "exports": ["EmailData", "Attachment", "EmailParser"],
+      "imports": ["email", "os", "logging", "email.utils", "parsedate_to_datetime"],
+      "key_data_structures": ["EmailData", "Attachment"],
+      "used_by": ["email_analyzer.py", "outlook_connector.py", "analyze_outlook_emails.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "analyzer.py",
+      "purpose": "Analyzes email content and metadata, identifying potential security risks, extracting insights, and generating reports.",
+      "exports": ["AnalysisResults", "Analyzer"],
+      "imports": ["re", "json", "logging", "datetime", "email.utils", "html"],
+      "key_data_structures": ["AnalysisResults"],
+      "used_by": ["email_analyzer.py", "analyze_outlook_emails.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "outlook_connector.py",
+      "purpose": "Connects to Microsoft Outlook and retrieves emails from specific folders. Extracts structured data from emails including client and user information.",
+      "exports": ["OutlookConnector"],
+      "imports": ["os", "re", "tempfile", "logging", "win32com.client", "datetime", "email_parser.EmailData", "email_parser.Attachment"],
+      "key_data_structures": ["OutlookConnector"],
+      "used_by": ["analyze_outlook_emails.py", "refresh_emails.py", "monitor_new_emails.py"],
+      "calls_out_to": ["email_parser.py"]
+    },
+    {
+      "filename": "analyze_outlook_emails.py",
+      "purpose": "Retrieves emails from a specified Outlook folder and analyzes them using the Email Analyzer. Creates an HTML index of analyzed emails.",
+      "exports": ["main", "parse_arguments", "create_html_index"],
+      "imports": ["os", "sys", "argparse", "logging", "datetime", "outlook_connector.OutlookConnector", "analyzer.Analyzer", "utils.setup_logging", "support_categories.categorize_description", "data_normalizer"],
+      "key_data_structures": [],
+      "used_by": [],
+      "calls_out_to": ["outlook_connector.py", "analyzer.py", "utils.py", "support_categories.py", "data_normalizer.py", "update_dashboard.py"]
+    },
+    {
+      "filename": "data_normalizer.py",
+      "purpose": "Provides normalization functionality for company names, support categories, and subject templates. Detects new entities and maintains mapping files.",
+      "exports": ["Normalizer", "CompanyNormalizer", "CategoryNormalizer", "TemplateNormalizer"],
+      "imports": ["os", "json", "re", "difflib.SequenceMatcher", "typing"],
+      "key_data_structures": ["Normalizer", "CompanyNormalizer", "CategoryNormalizer", "TemplateNormalizer"],
+      "used_by": ["analyze_outlook_emails.py", "normalize_email_data.py", "refresh_normalization.py", "integrate_normalization.py", "update_dashboard.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "support_categories.py",
+      "purpose": "Defines the support ticket categories and provides functions to categorize email descriptions based on keywords.",
+      "exports": ["CATEGORIES", "categorize_description"],
+      "imports": ["re"],
+      "key_data_structures": ["CATEGORIES"],
+      "used_by": ["analyze_outlook_emails.py", "categorize_emails.py", "add_categories.py", "update_categories.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "utils.py",
+      "purpose": "Provides utility functions for logging, version information, file operations, and string manipulation.",
+      "exports": ["setup_logging", "get_version", "format_file_size", "sanitize_filename", "extract_domain_from_email"],
+      "imports": ["logging", "os", "sys", "datetime"],
+      "key_data_structures": [],
+      "used_by": ["email_analyzer.py", "analyze_outlook_emails.py", "refresh_emails.py", "monitor_new_emails.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "refresh_emails.py",
+      "purpose": "Provides an API endpoint to fetch new emails that have arrived since the last check. Runs as an HTTP server.",
+      "exports": ["RefreshEmailsHandler", "run_server"],
+      "imports": ["json", "datetime", "http.server", "urllib.parse", "outlook_connector.OutlookConnector", "utils.setup_logging"],
+      "key_data_structures": ["RefreshEmailsHandler"],
+      "used_by": [],
+      "calls_out_to": ["outlook_connector.py", "utils.py"]
+    },
+    {
+      "filename": "normalize_email_data.py",
+      "purpose": "Normalizes company names, support categories, and subject templates in email data and HTML/JSON files.",
+      "exports": ["normalize_email_data", "normalize_html_file", "normalize_json_file", "normalize_directory"],
+      "imports": ["os", "re", "json", "data_normalizer"],
+      "key_data_structures": [],
+      "used_by": [],
+      "calls_out_to": ["data_normalizer.py", "update_dashboard.py"]
+    },
+    {
+      "filename": "update_dashboard.py",
+      "purpose": "Updates the dashboard.html file with normalized data from the data_normalizer module. Removes hard-coded constants and injects dynamic data.",
+      "exports": ["update_dashboard", "create_dashboard_template", "extract_entities_from_index"],
+      "imports": ["os", "re", "json", "datetime", "data_normalizer"],
+      "key_data_structures": [],
+      "used_by": ["analyze_outlook_emails.py", "normalize_email_data.py"],
+      "calls_out_to": ["data_normalizer.py"]
+    },
+    {
+      "filename": "monitor_new_emails.py",
+      "purpose": "Monitors an Outlook folder for new emails and processes them automatically. Can run as a scheduled task.",
+      "exports": ["main", "parse_arguments", "process_new_emails"],
+      "imports": ["os", "sys", "argparse", "logging", "datetime", "time", "outlook_connector.OutlookConnector", "analyzer.Analyzer", "utils.setup_logging"],
+      "key_data_structures": [],
+      "used_by": [],
+      "calls_out_to": ["outlook_connector.py", "analyzer.py", "utils.py"]
+    },
+    {
+      "filename": "analyzed_emails/dashboard.html",
+      "purpose": "Web dashboard for visualizing email analysis data with charts and filters.",
+      "exports": [],
+      "imports": ["chart.min.js", "dashboard_data.js"],
+      "key_data_structures": ["currentDateRange", "currentCompany", "startDate", "endDate", "supportCategories", "subjectTemplates"],
+      "used_by": [],
+      "calls_out_to": ["dashboard_data.js", "chart.min.js", "index.html"]
+    },
+    {
+      "filename": "analyzed_emails/dashboard_data.js",
+      "purpose": "Provides data and functionality for the dashboard.html page. Loads data from index.html and creates charts.",
+      "exports": ["window.emailData", "window.companyChart", "window.subjectChart", "window.categoryChart", "window.companyNameMap", "window.requiredCompanies", "window.sampleData", "loadDataFromIndexHTML", "window.initializeDashboardData"],
+      "imports": [],
+      "key_data_structures": ["emailData", "companyNameMap", "requiredCompanies", "sampleData"],
+      "used_by": ["dashboard.html"],
+      "calls_out_to": ["index.html"]
+    },
+    {
+      "filename": "analyzed_emails/index.html",
+      "purpose": "Main page displaying the list of analyzed emails with filtering, sorting, and column customization capabilities.",
+      "exports": [],
+      "imports": ["table-sorter.js"],
+      "key_data_structures": ["emailTable"],
+      "used_by": ["dashboard.html", "dashboard_data.js"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "mappings/company_mappings.json",
+      "purpose": "Stores mappings between company name variants and their standardized forms.",
+      "exports": [],
+      "imports": [],
+      "key_data_structures": ["mappings", "standardized_entities"],
+      "used_by": ["data_normalizer.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "mappings/category_mappings.json",
+      "purpose": "Stores mappings between support category variants and their standardized forms.",
+      "exports": [],
+      "imports": [],
+      "key_data_structures": ["mappings", "standardized_entities"],
+      "used_by": ["data_normalizer.py"],
+      "calls_out_to": []
+    },
+    {
+      "filename": "mappings/template_mappings.json",
+      "purpose": "Stores mappings between subject template variants and their standardized forms.",
+      "exports": [],
+      "imports": [],
+      "key_data_structures": ["mappings", "standardized_entities"],
+      "used_by": ["data_normalizer.py"],
+      "calls_out_to": []
+    }
+  ]
+}

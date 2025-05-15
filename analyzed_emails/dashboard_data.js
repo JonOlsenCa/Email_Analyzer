@@ -115,6 +115,19 @@ function loadDataFromIndexHTML() {
     if (window.location.protocol === 'file:') {
         console.warn('Running from file:// protocol. Fetch may fail due to CORS restrictions.');
         console.log('Falling back to sample data due to file:// protocol');
+
+        // Create a custom event to notify that data is ready (using sample data)
+        setTimeout(() => {
+            const event = new CustomEvent('dashboardDataReady', {
+                detail: {
+                    dataLength: window.sampleData.length,
+                    usingSampleData: true,
+                    source: 'file protocol detection'
+                }
+            });
+            document.dispatchEvent(event);
+        }, 0);
+
         return Promise.resolve(window.sampleData);
     }
 
@@ -228,31 +241,72 @@ window.emailData = window.sampleData.slice();
 window.initializeDashboardData = function() {
     console.log('Initializing dashboard data...');
 
-    // Try to load data from index.html
-    return loadDataFromIndexHTML().then(data => {
-        window.loadedData = data;
-        window.emailData = data;
-        console.log(`Loaded ${window.emailData.length} emails from index.html or sample data`);
-
-        // Dispatch a custom event to notify dashboard.html that data is ready
-        const event = new CustomEvent('dashboardDataReady', {
-            detail: { dataLength: window.emailData.length }
-        });
-        document.dispatchEvent(event);
-
-        return window.emailData;
-    }).catch(error => {
-        console.error('Error in data initialization:', error);
-        // Ensure we have at least sample data
+    // Make sure we have sample data as a fallback
+    if (!window.emailData || !window.emailData.length) {
         window.emailData = window.sampleData.slice();
+        console.log('Initialized emailData with sample data');
+    }
 
-        // Dispatch event even if we're using sample data
-        const event = new CustomEvent('dashboardDataReady', {
-            detail: { dataLength: window.emailData.length, usingSampleData: true }
-        });
-        document.dispatchEvent(event);
+    // Return a promise that resolves with the email data
+    return new Promise((resolve, reject) => {
+        try {
+            // Try to load data from index.html
+            loadDataFromIndexHTML()
+                .then(data => {
+                    if (data && data.length > 0) {
+                        window.loadedData = data;
+                        window.emailData = data;
+                        console.log(`Loaded ${window.emailData.length} emails from index.html or sample data`);
+                    } else {
+                        console.warn('No data loaded from index.html, using sample data');
+                        window.emailData = window.sampleData.slice();
+                    }
 
-        return window.emailData;
+                    // Dispatch a custom event to notify dashboard.html that data is ready
+                    const event = new CustomEvent('dashboardDataReady', {
+                        detail: {
+                            dataLength: window.emailData.length,
+                            source: 'loadDataFromIndexHTML success'
+                        }
+                    });
+                    document.dispatchEvent(event);
+
+                    resolve(window.emailData);
+                })
+                .catch(error => {
+                    console.error('Error loading data from index.html:', error);
+                    // Ensure we have at least sample data
+                    window.emailData = window.sampleData.slice();
+
+                    // Dispatch event even if we're using sample data
+                    const event = new CustomEvent('dashboardDataReady', {
+                        detail: {
+                            dataLength: window.emailData.length,
+                            usingSampleData: true,
+                            source: 'loadDataFromIndexHTML error'
+                        }
+                    });
+                    document.dispatchEvent(event);
+
+                    resolve(window.emailData);
+                });
+        } catch (error) {
+            console.error('Unexpected error in initializeDashboardData:', error);
+            // Ensure we have at least sample data
+            window.emailData = window.sampleData.slice();
+
+            // Dispatch event even if we're using sample data
+            const event = new CustomEvent('dashboardDataReady', {
+                detail: {
+                    dataLength: window.emailData.length,
+                    usingSampleData: true,
+                    source: 'initializeDashboardData catch block'
+                }
+            });
+            document.dispatchEvent(event);
+
+            resolve(window.emailData);
+        }
     });
 };
 
